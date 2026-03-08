@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMESTrap — Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { padding: 7px 20px; border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1rem; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; font-family: 'SF Mono', 'Consolas', monospace; color: #7f8fa6; }
+  .hdr-badge { background: #2a2a4a; color: #7f8fa6; padding: 2px 9px; border-radius: 10px; font-size: 0.7rem; font-family: 'SF Mono', 'Consolas', monospace; white-space: nowrap; }
+  .hdr-badge .hdr-val { color: #b0b0c0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #e74c3c; transition: background 0.3s; flex-shrink: 0; }
+  .dot.ok { background: #2ecc71; }
+  .columns { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 380px); gap: 1px; flex: 1; overflow: hidden; background: #2a2a4a; }
+  .column { background: #1a1a2e; display: flex; flex-direction: column; overflow: hidden; }
+  .col-header { padding: 10px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: #7f8fa6; border-bottom: 1px solid #2a2a4a; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .col-header .badge { background: #2a2a4a; color: #7f8fa6; padding: 1px 8px; border-radius: 10px; font-size: 0.65rem; }
+  .col-body { flex: 1; overflow-y: auto; padding: 10px; }
+  .col-body::-webkit-scrollbar { width: 4px; }
+  .col-body::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
+
+  /* Sources panel */
+  .source-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; cursor: pointer; border: 1px solid transparent; transition: border-color 0.2s; }
+  .source-card:hover { border-color: #2a2a4a; }
+  .source-card.selected { border-color: #4a6fa5; background: #1a2a45; }
+  .source-name { font-size: 0.88rem; font-weight: 600; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .source-activity { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .source-activity.bright { background: #2ecc71; box-shadow: 0 0 4px #2ecc71; }
+  .source-activity.dim { background: #f39c12; }
+  .source-activity.grey { background: #555570; }
+  .source-stats { display: flex; gap: 12px; margin-top: 2px; font-size: 0.65rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; }
+  .rec-badge { font-size: 0.6rem; padding: 1px 6px; border-radius: 8px; background: #1e3a5f; color: #5dade2; margin-left: auto; }
+  .no-sources { color: #555570; font-size: 0.8rem; padding: 20px; text-align: center; }
+
+  /* Recordings panel */
+  .rec-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; position: relative; }
+  .rec-head { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; cursor: pointer; padding-right: 48px; }
+  .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .indicator.active { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; }
+  .indicator.done { background: #2ecc71; }
+  .indicator.stopped { background: #636e72; }
+  .rec-desc { font-size: 0.78rem; color: #b0b0c0; margin-top: 3px; font-style: italic; padding-right: 48px; }
+  .rec-detail { font-size: 0.7rem; color: #7f8fa6; font-family: 'SF Mono', 'Consolas', monospace; margin-top: 4px; }
+  .rec-detail .label { color: #555570; }
+  .rec-timing { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; font-size: 0.65rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; }
+  .rec-timing .tm-val { color: #7f8fa6; }
+  .rec-events { display: none; margin-top: 6px; border-top: 1px solid #2a2a4a; max-height: 280px; overflow: auto; background: #0f0f23; border-radius: 0 0 4px 4px; }
+  .rec-events.open { display: block; }
+  .rec-events::-webkit-scrollbar { width: 4px; height: 4px; }
+  .rec-events::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
+  .rec-events::-webkit-scrollbar-corner { background: #0f0f23; }
+  .ev-toolbar { display: none; margin-top: 6px; padding-top: 5px; border-top: 1px solid #2a2a4a; gap: 4px; align-items: center; }
+  .ev-toolbar.open { display: flex; }
+  .ev-tool-btn { background: none; border: 1px solid #2a2a4a; color: #555570; cursor: pointer; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; font-family: 'SF Mono', 'Consolas', monospace; transition: all 0.15s; white-space: nowrap; }
+  .ev-tool-btn:hover { border-color: #4a6fa5; color: #5dade2; }
+  .ev-tool-btn.flash { border-color: #2ecc71; color: #2ecc71; }
+  .ev-tool-count { font-size: 0.6rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; margin-left: auto; }
+  .rec-ev-row { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.68rem; color: #7f8fa6; padding: 2px 6px; white-space: pre; }
+  .rec-ev-row:hover { background: #16213e; }
+  .rec-ev-row .ev-ts { color: #555570; margin-right: 6px; }
+  .rec-ev-row .ev-until { color: #2ecc71; font-weight: 600; }
+  .rec-actions { position: absolute; top: 8px; right: 10px; display: flex; align-items: center; gap: 4px; }
+  .stop-btn { background: none; border: 1px solid #555570; color: #636e72; cursor: pointer; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; line-height: 1.4; }
+  .stop-btn:hover { border-color: #f39c12; color: #f39c12; }
+  .curl-btn { background: none; border: 1px solid #2a2a4a; color: #555570; cursor: pointer; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; line-height: 1.4; font-family: 'SF Mono', 'Consolas', monospace; transition: all 0.15s; }
+  .curl-btn:hover { border-color: #4a6fa5; color: #5dade2; }
+  .curl-btn.copied { border-color: #2ecc71; color: #2ecc71; }
+  .copy-icon-btn { background: none; border: 1px solid #2a2a4a; color: #555570; cursor: pointer; padding: 1px 5px; border-radius: 3px; line-height: 1.4; transition: all 0.15s; display: inline-flex; align-items: center; }
+  .copy-icon-btn:hover { border-color: #4a6fa5; color: #5dade2; }
+  .copy-icon-btn.copied { border-color: #2ecc71; color: #2ecc71; }
+  .curl-bar { display: none; margin-top: 7px; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; padding: 6px 8px; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.68rem; color: #7f8fa6; word-break: break-all; user-select: all; cursor: text; }
+  .curl-bar.open { display: block; }
+  .delete-btn { background: none; border: none; color: #636e72; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 4px; }
+  .delete-btn:hover { color: #e74c3c; }
+  .no-recordings { color: #555570; font-size: 0.8rem; padding: 20px; text-align: center; }
+  .sort-controls { display: flex; align-items: center; gap: 3px; }
+  .sort-btn { background: none; border: 1px solid #2a2a4a; color: #555570; padding: 2px 7px; border-radius: 3px; cursor: pointer; font-size: 0.6rem; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.15s; }
+  .sort-btn:hover { border-color: #4a6fa5; color: #7f8fa6; }
+  .sort-btn.on { border-color: #4a6fa5; color: #5dade2; background: #1e3a5f; }
+  .sort-dir { background: none; border: 1px solid #2a2a4a; color: #7f8fa6; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem; transition: all 0.15s; margin-left: 2px; }
+  .sort-dir:hover { border-color: #4a6fa5; color: #5dade2; }
+  .until-progress { margin-top: 6px; }
+  .until-pred { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-family: 'SF Mono', 'Consolas', monospace; padding: 1px 0; }
+  .until-pred .pred-marker { flex-shrink: 0; font-size: 0.7rem; }
+  .until-pred .pred-marker.matched { color: #2ecc71; }
+  .until-pred .pred-marker.pending { color: #555570; }
+  .until-pred .pred-expr { color: #7f8fa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .until-pred .pred-expr.matched { color: #555570; text-decoration: line-through; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Observe/control mode */
+  .mode-toggle { background: none; border: 1px solid #2a2a4a; color: #555570; padding: 2px 9px; border-radius: 10px; font-size: 0.65rem; font-family: 'SF Mono', 'Consolas', monospace; cursor: pointer; transition: all 0.15s; margin-left: auto; white-space: nowrap; }
+  .mode-toggle:hover { border-color: #4a6fa5; color: #7f8fa6; }
+  .mode-toggle.control { border-color: #f39c12; color: #f39c12; }
+  body.observe-mode .stop-btn, body.observe-mode .delete-btn { display: none; }
+
+  /* New recording form */
+  .form-col-body { flex: 1; overflow-y: auto; padding: 14px; }
+  .form-group { margin-bottom: 12px; }
+  .form-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #7f8fa6; margin-bottom: 5px; display: flex; align-items: baseline; gap: 6px; }
+  .form-hint { text-transform: none; letter-spacing: 0; color: #555570; font-size: 0.62rem; }
+  .form-input { width: 100%; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; color: #e0e0e0; padding: 6px 8px; font-size: 0.78rem; font-family: 'SF Mono', 'Consolas', monospace; outline: none; transition: border-color 0.15s; }
+  .form-input:focus { border-color: #4a6fa5; }
+  .form-input::placeholder { color: #3a3a5a; }
+  .source-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; padding: 4px 6px; cursor: text; transition: border-color 0.15s; }
+  .source-chips:focus-within { border-color: #4a6fa5; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: #1e3a5f; color: #5dade2; border-radius: 3px; padding: 1px 6px; font-size: 0.72rem; font-family: 'SF Mono', 'Consolas', monospace; }
+  .chip-remove { background: none; border: none; color: #5dade2; cursor: pointer; font-size: 0.8rem; line-height: 1; padding: 0; opacity: 0.6; }
+  .chip-remove:hover { opacity: 1; }
+  .chip-input { background: none; border: none; outline: none; color: #e0e0e0; font-size: 0.78rem; font-family: 'SF Mono', 'Consolas', monospace; min-width: 80px; flex: 1; padding: 1px 2px; }
+  .chip-input::placeholder { color: #3a3a5a; }
+  .until-btns { display: flex; gap: 4px; }
+  .until-btn { background: #0f0f23; border: 1px solid #2a2a4a; color: #555570; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 0.72rem; transition: all 0.15s; flex: 1; }
+  .until-btn:hover { border-color: #4a6fa5; color: #7f8fa6; }
+  .until-btn.active { background: #1e3a5f; border-color: #4a6fa5; color: #5dade2; }
+  .preds-section { margin-bottom: 12px; }
+  .pred-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+  .pred-row .form-input { font-size: 0.75rem; padding: 5px 8px; }
+  .pred-remove { background: none; border: none; color: #555570; cursor: pointer; font-size: 0.9rem; padding: 0 4px; flex-shrink: 0; }
+  .pred-remove:hover { color: #e74c3c; }
+  .add-pred-btn { width: 100%; background: none; border: 1px dashed #2a2a4a; color: #555570; padding: 5px; border-radius: 4px; cursor: pointer; font-size: 0.72rem; margin-bottom: 14px; transition: all 0.15s; }
+  .add-pred-btn:hover { border-color: #4a6fa5; color: #7f8fa6; }
+  .create-btn { width: 100%; background: #1e3a5f; border: 1px solid #4a6fa5; color: #5dade2; padding: 9px; border-radius: 4px; cursor: pointer; font-size: 0.84rem; font-weight: 600; transition: background 0.15s; letter-spacing: 0.3px; }
+  .create-btn:hover:not(:disabled) { background: #264d7a; }
+  .create-btn:disabled { opacity: 0.5; cursor: default; }
+  .form-feedback { margin-top: 8px; font-size: 0.72rem; min-height: 1.4em; font-family: 'SF Mono', 'Consolas', monospace; }
+  .form-feedback.ok { color: #2ecc71; }
+  .form-feedback.err { color: #e74c3c; }
+  .form-divider { border: none; border-top: 1px solid #2a2a4a; margin: 14px 0; }
+  .source-hint { font-size: 0.68rem; color: #555570; margin-top: 4px; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>JMESTrap</h1>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">connecting…</span>
+  </div>
+  <span class="hdr-badge">sources <span class="hdr-val" id="hdrSources">—</span></span>
+  <span class="hdr-badge">events <span class="hdr-val" id="hdrEvents">—</span></span>
+  <span class="hdr-badge">recording <span class="hdr-val" id="hdrRecording">—</span></span>
+  <button class="mode-toggle" id="modeToggle" onclick="toggleControlMode()" title="Toggle stop/delete controls"></button>
+</header>
+<div class="columns">
+
+  <!-- Left: Sources -->
+  <div class="column">
+    <div class="col-header">
+      Sources
+      <div class="sort-controls">
+        <button class="sort-btn on" id="srcLiveBtn" onclick="toggleSourceSort()" title="Sort by recent activity">live</button>
+        <button class="sort-btn on" id="srcIdBtn"   onclick="toggleSourcePrefix()" title="Strip numeric ID prefix">id</button>
+      </div>
+    </div>
+    <div class="col-body" tabindex="0" id="sourcesCol" style="outline:none">
+      <div id="sources"><div class="no-sources">No sources yet</div></div>
+    </div>
+  </div>
+
+  <!-- Middle: Recordings -->
+  <div class="column">
+    <div class="col-header">
+      Recordings <span class="badge" id="recCount">0</span>
+      <div class="sort-controls">
+        <button class="sort-btn on" id="sb-ref"     onclick="setSort('ref')">ref</button>
+        <button class="sort-btn"    id="sb-created" onclick="setSort('created')">created</button>
+        <button class="sort-btn"    id="sb-first"   onclick="setSort('first')">first event</button>
+        <button class="sort-btn"    id="sb-last"    onclick="setSort('last')">last event</button>
+        <button class="sort-btn"    id="sb-desc"    onclick="setSort('desc_text')">desc</button>
+        <button class="sort-dir"    id="sortDir"    onclick="toggleSortDir()">↓</button>
+      </div>
+    </div>
+    <div class="col-body" id="recordings">
+      <div class="no-recordings">No recordings</div>
+    </div>
+  </div>
+
+  <!-- Right: New Recording -->
+  <div class="column">
+    <div class="col-header">New Recording</div>
+    <div class="form-col-body">
+
+      <div class="form-group">
+        <div class="form-label">Description <span class="form-hint">optional</span></div>
+        <input class="form-input" id="f-desc" type="text" placeholder="e.g. login sequence check" autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">Sources <span class="form-hint">click source in left panel</span></div>
+        <div class="source-chips" id="sourceChips" onclick="document.getElementById('chipInput').focus()">
+          <input class="chip-input" id="chipInput" placeholder="type + enter, blank = all" autocomplete="off">
+        </div>
+        <div class="source-hint" id="sourceHint"></div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">Matching <span class="form-hint">JMESPath filter, optional</span></div>
+        <input class="form-input" id="f-matching" type="text" placeholder="e.g. type == 'alert'" autocomplete="off">
+      </div>
+
+      <hr class="form-divider">
+
+      <div class="form-group">
+        <div class="form-label">Until</div>
+        <div class="until-btns">
+          <button class="until-btn active" onclick="setUntilType('none')">none</button>
+          <button class="until-btn" onclick="setUntilType('order')">order</button>
+          <button class="until-btn" onclick="setUntilType('any_order')">any order</button>
+        </div>
+      </div>
+
+      <div class="preds-section" id="predsSection" style="display:none">
+        <div class="form-label" style="margin-bottom:6px">Predicates</div>
+        <div id="predsList"></div>
+        <button class="add-pred-btn" onclick="addPredicate()">+ add predicate</button>
+      </div>
+
+      <button class="create-btn" id="createBtn" onclick="createRecording()">Create Recording</button>
+      <div class="form-feedback" id="formFeedback"></div>
+
+    </div>
+  </div>
+
+</div>
+<script>
+const BASE = location.protocol === 'file:'
+  ? 'http://127.0.0.1:9000'
+  : location.origin.replace(location.port, '9000');
+const POLL_INTERVAL = 1500;
+
+// ---- State ----
+let sources = [];
+let recordings = [];
+let selectedSource = null;
+let expandedRecs = new Set();
+let openCurls = new Set();
+let sourcesLocked = false;   // false = sort by activity, true = alphabetical
+let stripPrefix = false;     // strip leading digits+underscore from display names
+let sortKey = 'ref';   // 'ref' | 'created' | 'last' | 'first' | 'desc_text'
+let sortAsc = false;   // descending = newest first
+
+// Observe/control mode
+let controlMode = localStorage.getItem('jmestrap-control-mode') === 'true';
+function toggleControlMode() {
+  controlMode = !controlMode;
+  localStorage.setItem('jmestrap-control-mode', controlMode);
+  applyControlMode();
+}
+function applyControlMode() {
+  document.body.classList.toggle('observe-mode', !controlMode);
+  const btn = document.getElementById('modeToggle');
+  btn.textContent = controlMode ? '\u{1F513} controls' : '\u{1F512} observe';
+  btn.classList.toggle('control', controlMode);
+}
+applyControlMode();
+
+// Form state
+let untilType = 'none';
+let predCounter = 0;
+let sourceChips = [];   // array of source name strings
+
+// ---- Sort controls ----
+const SORT_KEYS = ['ref', 'created', 'first', 'last', 'desc_text'];
+const SORT_IDS  = ['sb-ref', 'sb-created', 'sb-first', 'sb-last', 'sb-desc'];
+
+function setSort(key) {
+  if (sortKey === key) { toggleSortDir(); return; }
+  sortKey = key;
+  renderSortButtons();
+  renderRecordings();
+}
+
+function toggleSortDir() {
+  sortAsc = !sortAsc;
+  document.getElementById('sortDir').textContent = sortAsc ? '↑' : '↓';
+  renderRecordings();
+}
+
+function renderSortButtons() {
+  SORT_KEYS.forEach((k, i) => {
+    document.getElementById(SORT_IDS[i]).classList.toggle('on', k === sortKey);
+  });
+}
+
+function applySortOrder(recs) {
+  return [...recs].sort((a, b) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case 'ref':       cmp = (a.reference || 0) - (b.reference || 0); break;
+      case 'created':   cmp = (a.created_at_ms || 0) - (b.created_at_ms || 0); break;
+      case 'first':     cmp = (a.first_event_at_ms || 0) - (b.first_event_at_ms || 0); break;
+      case 'last':      cmp = (a.last_event_at_ms || a.created_at_ms || 0)
+                             - (b.last_event_at_ms || b.created_at_ms || 0); break;
+      case 'desc_text': cmp = (a.description || '').localeCompare(b.description || ''); break;
+    }
+    return sortAsc ? cmp : -cmp;
+  });
+}
+
+// ---- Source display controls ----
+function displayName(name) {
+  return stripPrefix ? name.replace(/^\d+_/, '') : name;
+}
+
+function toggleSourceSort() {
+  sourcesLocked = !sourcesLocked;
+  document.getElementById('srcLiveBtn').classList.toggle('on', !sourcesLocked);
+  renderSources();
+}
+
+function toggleSourcePrefix() {
+  stripPrefix = !stripPrefix;
+  document.getElementById('srcIdBtn').classList.toggle('on', !stripPrefix);
+  renderSources();
+  renderRecordings();  // source list in recording cards also uses displayName
+}
+
+// ---- Helpers ----
+function fmtMs(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
+       + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function fmtDuration(startMs, endMs) {
+  if (!startMs || !endMs) return '—';
+  const diff = endMs - startMs;
+  if (diff < 1000) return diff + 'ms';
+  if (diff < 60000) return (diff / 1000).toFixed(1) + 's';
+  return (diff / 60000).toFixed(1) + 'min';
+}
+
+function fmtAgo(ms) {
+  if (!ms) return '';
+  const ago = Date.now() - ms;
+  if (ago < 1000) return 'just now';
+  if (ago < 60000) return Math.floor(ago / 1000) + 's ago';
+  if (ago < 3600000) return Math.floor(ago / 60000) + 'min ago';
+  return Math.floor(ago / 3600000) + 'h ago';
+}
+
+function fmtCount(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---- API polling ----
+async function fetchJson(path) {
+  const r = await fetch(`${BASE}${path}`);
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+
+async function pollAll() {
+  try {
+    const [ping, srcResp, recResp] = await Promise.all([
+      fetchJson('/ping'),
+      fetchJson('/sources'),
+      fetchJson('/recordings'),
+    ]);
+    const ok = ping.status === 'ok';
+    document.getElementById('statusDot').className = 'dot' + (ok ? ' ok' : '');
+    document.getElementById('statusText').textContent = ok ? `connected — ${BASE}` : 'error';
+    sources = srcResp.sources || [];
+    const fresh = recResp.recordings || recResp || [];
+    for (const r of fresh) {
+      const prev = recordings.find(p => p.reference === r.reference);
+      if (prev && prev.events) r.events = prev.events;
+    }
+    recordings = fresh;
+    renderSources();
+    renderRecordings();
+  } catch {
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'offline';
+  }
+}
+
+// ---- Sources (keyboard navigation) ----
+document.getElementById('sourcesCol').addEventListener('keydown', function(e) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  const names = sources.map(s => s.source || s);
+  if (names.length === 0) return;
+  const cur = names.indexOf(selectedSource);
+  let next;
+  if (e.key === 'ArrowDown') next = cur < names.length - 1 ? cur + 1 : 0;
+  else next = cur > 0 ? cur - 1 : names.length - 1;
+  selectedSource = names[next];
+  renderSources();
+  renderRecordings();
+  syncFormSource(selectedSource);
+  // Scroll selected card into view
+  const card = document.querySelector('.source-card.selected');
+  if (card) card.scrollIntoView({block: 'nearest'});
+});
+
+// ---- Sources ----
+function activityClass(lastSeenMs) {
+  if (!lastSeenMs) return 'grey';
+  const age = Date.now() - lastSeenMs;
+  if (age < 3000) return 'bright';
+  if (age < 10000) return 'dim';
+  return 'grey';
+}
+
+function renderSources() {
+  const el = document.getElementById('sources');
+  document.getElementById('hdrSources').textContent = sources.length;
+  const totalEvents = sources.reduce((s, src) => s + (src.event_count || 0), 0);
+  document.getElementById('hdrEvents').textContent = fmtCount(totalEvents);
+  if (sources.length === 0) {
+    el.innerHTML = '<div class="no-sources">No sources yet</div>';
+    return;
+  }
+  const sorted = sourcesLocked
+    ? [...sources].sort((a, b) => displayName(a.source || '').localeCompare(displayName(b.source || '')))
+    : [...sources].sort((a, b) =>
+        (b.last_seen_ms || 0) - (a.last_seen_ms || 0) || (b.event_count || 0) - (a.event_count || 0));
+  el.innerHTML = '';
+  for (const src of sorted) {
+    const name = src.source || src;
+    const card = document.createElement('div');
+    card.className = 'source-card' + (name === selectedSource ? ' selected' : '');
+    card.onclick = () => {
+      selectedSource = selectedSource === name ? null : name;
+      renderSources();
+      renderRecordings();
+      syncFormSource(selectedSource);
+    };
+    const activity = activityClass(src.last_seen_ms);
+    const recCount = src.active_recording_count || 0;
+    card.innerHTML = `
+      <div class="source-name">
+        <span class="source-activity ${activity}"></span>
+        ${esc(displayName(name))}
+        ${recCount > 0 ? `<span class="rec-badge">${recCount} rec</span>` : ''}
+      </div>
+      <div class="source-stats">
+        <span>${fmtCount(src.event_count || 0)} events</span>
+      </div>
+    `;
+    el.appendChild(card);
+  }
+}
+
+// ---- Recordings ----
+function renderRecordings() {
+  const el = document.getElementById('recordings');
+
+  const scrollPositions = {};
+  for (const ref of expandedRecs) {
+    const rv = document.getElementById(`rev-${ref}`);
+    if (rv) scrollPositions[ref] = { top: rv.scrollTop, left: rv.scrollLeft };
+  }
+
+  const visible = recordings.filter(r => {
+    if (!selectedSource) return true;
+    const srcs = r.sources || [];
+    return srcs.length === 0 || srcs.includes(selectedSource);
+  });
+  const all = applySortOrder(visible);
+
+  document.getElementById('recCount').textContent = all.length;
+  const activeCount = recordings.filter(r => (r.status || 'running') === 'running').length;
+  document.getElementById('hdrRecording').textContent = activeCount || '—';
+  if (all.length === 0) {
+    el.innerHTML = '<div class="no-recordings">No recordings</div>';
+    return;
+  }
+  el.innerHTML = '';
+  for (const rec of all) {
+    const card = document.createElement('div');
+    card.className = 'rec-card';
+    const st = rec.status === 'completed' ? 'done' : (rec.status === 'stopped' ? 'stopped' : 'active');
+    const isActive = st === 'active';
+    const evCount = rec.event_count || (rec.events ? rec.events.length : 0);
+    const srcList = (rec.sources || []).map(displayName).join(', ') || 'all';
+    const desc = rec.description || '';
+
+    let detailHtml = '';
+    if (rec.matching_expr) detailHtml += `<div><span class="label">matching:</span> ${esc(rec.matching_expr)}</div>`;
+
+    const created = fmtMs(rec.created_at_ms);
+    const duration = (rec.status !== 'running')
+      ? fmtDuration(rec.created_at_ms, rec.finished_at_ms)
+      : fmtAgo(rec.created_at_ms);
+    const evalsText = rec.events_evaluated != null ? fmtCount(rec.events_evaluated) : '—';
+    const selectivity = (rec.events_evaluated > 0 && evCount > 0)
+      ? Math.round(evCount / rec.events_evaluated * 100) + '%' : '';
+
+    let timingHtml = `<div class="rec-timing">`;
+    timingHtml += `<span><span class="label">created:</span> <span class="tm-val">${created}</span></span>`;
+    if (rec.first_event_at_ms) timingHtml += `<span><span class="label">first:</span> <span class="tm-val">${fmtMs(rec.first_event_at_ms)}</span></span>`;
+    if (rec.last_event_at_ms) timingHtml += `<span><span class="label">last:</span> <span class="tm-val">${fmtMs(rec.last_event_at_ms)}</span></span>`;
+    timingHtml += (rec.status !== 'running')
+      ? `<span><span class="label">duration:</span> <span class="tm-val">${duration}</span></span>`
+      : `<span class="tm-val">${duration}</span>`;
+    timingHtml += `<span><span class="label">evaluated:</span> <span class="tm-val">${evalsText}${selectivity ? ' (' + selectivity + ' recorded)' : ''}</span></span>`;
+    timingHtml += `</div>`;
+
+    let untilHtml = '';
+    if (rec.until && rec.until.predicates) {
+      const preds = rec.until.predicates;
+      const matchedCount = preds.filter(p => p.matched).length;
+      untilHtml = `
+        <div class="until-progress">
+          <div style="font-size:0.65rem;color:#555570;margin-bottom:3px">until (${rec.until.type}) — ${matchedCount}/${preds.length}</div>
+          ${preds.map(p => `
+            <div class="until-pred">
+              <span class="pred-marker ${p.matched ? 'matched' : 'pending'}">${p.matched ? '✓' : '○'}</span>
+              <span class="pred-expr ${p.matched ? 'matched' : ''}">${esc(p.expr)}</span>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    const stopBtn = isActive
+      ? `<button class="stop-btn" onclick="event.stopPropagation();stopRec(${rec.reference})" title="Stop recording">◼ stop</button>`
+      : '';
+    const curlCmd = `curl -s '${BASE}/recordings/${rec.reference}?timeout=10'`;
+
+    card.innerHTML = `
+      <div class="rec-actions">${stopBtn}<button class="curl-btn" id="curlbtn-${rec.reference}" onclick="event.stopPropagation();toggleCurl(${rec.reference})" title="Show curl command">curl</button><button class="copy-icon-btn" id="copyiconbtn-${rec.reference}" onclick="event.stopPropagation();copyCurl(${rec.reference},'${esc(curlCmd)}')" title="Copy curl command"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M10 1H4a2 2 0 0 0-2 2v9h1V3a1 1 0 0 1 1-1h6V1zm3 3H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm0 10H6V5h7v9z"/></svg></button><button class="delete-btn" onclick="deleteRec(${rec.reference})" title="Delete">×</button></div>
+      <div class="rec-head" onclick="toggleRecEvents(${rec.reference})">
+        <span class="indicator ${st}"></span>
+        <span>#${rec.reference} — ${rec.status === 'completed' ? '✓ done' : rec.status === 'stopped' ? '◼ stopped' : '◉ recording'} — ${evCount} event${evCount!==1?'s':''}</span>
+      </div>
+      ${desc ? `<div class="rec-desc">${esc(desc)}</div>` : ''}
+      <div class="rec-detail">
+        <div><span class="label">sources:</span> ${esc(srcList)}</div>
+        ${detailHtml}
+      </div>
+      ${timingHtml}
+      ${untilHtml}
+      <div class="curl-bar${openCurls.has(rec.reference) ? ' open' : ''}" id="curl-${rec.reference}">${esc(curlCmd)}</div>
+      <div class="ev-toolbar${expandedRecs.has(rec.reference) ? ' open' : ''}" id="evt-${rec.reference}">
+        <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsJSON(${rec.reference})" title="Copy all events as JSON array">copy JSON</button>
+
+        <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsText(${rec.reference})" title="Copy as text lines">copy text</button>
+        <span class="ev-tool-count">${evCount} evt${evCount!==1?'s':''}</span>
+      </div>
+      <div class="rec-events${expandedRecs.has(rec.reference) ? ' open' : ''}" id="rev-${rec.reference}"></div>
+    `;
+    el.appendChild(card);
+
+    if (rec.events && rec.events.length) {
+      const rv = card.querySelector(`#rev-${rec.reference}`);
+      for (const ev of rec.events) {
+        const row = document.createElement('div');
+        row.className = 'rec-ev-row';
+        const evTs = ev.recorded_at_ms ? `<span class="ev-ts">${fmtMs(ev.recorded_at_ms)}</span>` : '';
+        const untilMark = ev.until_predicate != null ? `<span class="ev-until">[until:${ev.until_predicate}]</span> ` : '';
+        const inner = ev.payload || ev;
+        row.innerHTML = `${evTs}${untilMark}${esc(JSON.stringify(inner))}`;
+        rv.appendChild(row);
+      }
+    }
+  }
+
+  for (const [ref, pos] of Object.entries(scrollPositions)) {
+    const rv = document.getElementById(`rev-${ref}`);
+    if (rv) { rv.scrollTop = pos.top; rv.scrollLeft = pos.left; }
+  }
+}
+
+async function toggleRecEvents(ref) {
+  if (expandedRecs.has(ref)) {
+    expandedRecs.delete(ref);
+  } else {
+    expandedRecs.add(ref);
+    const rec = recordings.find(r => r.reference === ref);
+    if (rec && (!rec.events || rec.status === 'running')) {
+      try {
+        const detail = await fetchJson(`/recordings/${rec.reference}?timeout=0`);
+        Object.assign(rec, detail);
+      } catch {}
+    }
+  }
+  const open = expandedRecs.has(ref);
+  const rv = document.getElementById(`rev-${ref}`);
+  const tb = document.getElementById(`evt-${ref}`);
+  if (rv) rv.classList.toggle('open', open);
+  if (tb) tb.classList.toggle('open', open);
+  if (open) renderRecordings();
+}
+
+function copyEventsJSON(ref) {
+  const rec = recordings.find(r => r.reference === ref);
+  if (!rec || !rec.events || !rec.events.length) return;
+  const payloads = rec.events.map(e => e.payload || e);
+  const text = JSON.stringify(payloads, null, 2);
+  navigator.clipboard.writeText(text).then(() => flashEvtBtn(ref, 'copy JSON'));
+}
+
+function copyEventsText(ref) {
+  const rv = document.getElementById(`rev-${ref}`);
+  if (!rv) return;
+  const lines = Array.from(rv.querySelectorAll('.rec-ev-row')).map(r => r.textContent);
+  navigator.clipboard.writeText(lines.join('\n')).then(() => flashEvtBtn(ref, 'copy text'));
+}
+
+
+function flashEvtBtn(ref, label) {
+  const tb = document.getElementById(`evt-${ref}`);
+  if (!tb) return;
+  const btn = Array.from(tb.querySelectorAll('.ev-tool-btn')).find(b => b.textContent === label);
+  if (!btn) return;
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 1200);
+}
+
+async function stopRec(ref) {
+  try {
+    await fetch(`${BASE}/recordings/${ref}/stop`, { method: 'POST' });
+    await mainLoop();
+  } catch {}
+}
+
+async function deleteRec(ref) {
+  if (!confirm(`Delete recording #${ref}?`)) return;
+  try {
+    await fetch(`${BASE}/recordings/${ref}`, { method: 'DELETE' });
+    recordings = recordings.filter(r => r.reference !== ref);
+    renderRecordings();
+  } catch {}
+}
+
+// ---- New Recording Form ----
+function syncFormSource(name) {
+  if (name) {
+    // Add chip if not already present
+    if (!sourceChips.includes(name)) {
+      sourceChips = [name];
+      renderChips();
+    }
+    document.getElementById('sourceHint').textContent = '';
+  } else {
+    document.getElementById('sourceHint').textContent = 'No source selected — will watch all sources';
+  }
+}
+
+function renderChips() {
+  const container = document.getElementById('sourceChips');
+  const input = document.getElementById('chipInput');
+  // Remove all chips (keep the input)
+  Array.from(container.querySelectorAll('.chip')).forEach(c => c.remove());
+  for (const name of sourceChips) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `${esc(displayName(name))}<button class="chip-remove" onclick="removeChip('${esc(name)}')" tabindex="-1">×</button>`;
+    container.insertBefore(chip, input);
+  }
+  input.placeholder = sourceChips.length ? '' : 'type + enter, blank = all';
+}
+
+function removeChip(name) {
+  sourceChips = sourceChips.filter(s => s !== name);
+  if (selectedSource === name) {
+    selectedSource = null;
+    renderSources();
+    renderRecordings();
+  }
+  renderChips();
+}
+
+document.getElementById('chipInput').addEventListener('keydown', function(e) {
+  if ((e.key === 'Enter' || e.key === ',') && this.value.trim()) {
+    e.preventDefault();
+    const val = this.value.trim().replace(/,$/, '');
+    if (val && !sourceChips.includes(val)) {
+      sourceChips.push(val);
+      renderChips();
+    }
+    this.value = '';
+  } else if (e.key === 'Backspace' && !this.value && sourceChips.length) {
+    sourceChips.pop();
+    renderChips();
+  }
+});
+
+function setUntilType(type) {
+  untilType = type;
+  document.querySelectorAll('.until-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['none','order','any_order'][i] === type);
+  });
+  const section = document.getElementById('predsSection');
+  section.style.display = type === 'none' ? 'none' : 'block';
+  if (type !== 'none' && document.getElementById('predsList').children.length === 0) {
+    addPredicate();
+  }
+}
+
+function addPredicate() {
+  const id = ++predCounter;
+  const row = document.createElement('div');
+  row.className = 'pred-row';
+  row.id = `pred-${id}`;
+  row.innerHTML = `<input class="form-input" type="text" placeholder="e.g. event == 'done'" autocomplete="off"><button class="pred-remove" onclick="removePredicate(${id})" tabindex="-1">×</button>`;
+  document.getElementById('predsList').appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function removePredicate(id) {
+  const el = document.getElementById(`pred-${id}`);
+  if (el) el.remove();
+}
+
+function getPredicates() {
+  return Array.from(document.querySelectorAll('#predsList .pred-row input'))
+    .map(i => i.value.trim()).filter(Boolean);
+}
+
+function setFeedback(msg, ok) {
+  const el = document.getElementById('formFeedback');
+  el.textContent = msg;
+  el.className = 'form-feedback ' + (ok ? 'ok' : 'err');
+}
+
+async function createRecording() {
+  const desc = document.getElementById('f-desc').value.trim();
+  const matching = document.getElementById('f-matching').value.trim();
+
+  // Flush any typed-but-not-committed chip input
+  const chipInput = document.getElementById('chipInput');
+  if (chipInput.value.trim()) {
+    const val = chipInput.value.trim();
+    if (!sourceChips.includes(val)) sourceChips.push(val);
+    chipInput.value = '';
+    renderChips();
+  }
+
+  const body = {};
+  if (desc) body.description = desc;
+  if (sourceChips.length) body.sources = sourceChips;
+  if (matching) body.matching = matching;
+  if (untilType !== 'none') {
+    const preds = getPredicates();
+    if (!preds.length) { setFeedback('Add at least one predicate', false); return; }
+    body.until = { type: untilType, predicates: preds };
+  }
+
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  setFeedback('', true);
+  try {
+    const r = await fetch(`${BASE}/recordings`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) { setFeedback(j.error || `Error ${r.status}`, false); return; }
+    setFeedback(`✓ Recording #${j.reference} created`, true);
+    document.getElementById('f-desc').value = '';
+    await mainLoop();
+  } catch (e) {
+    setFeedback(e.message, false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- Curl helper ----
+function toggleCurl(ref) {
+  const bar = document.getElementById(`curl-${ref}`);
+  const btn = document.getElementById(`curlbtn-${ref}`);
+  if (!bar || !btn) return;
+  const opening = !openCurls.has(ref);
+  openCurls[opening ? 'add' : 'delete'](ref);
+  bar.classList.toggle('open', opening);
+  if (opening) {
+    navigator.clipboard.writeText(bar.textContent).then(() => {
+      btn.textContent = 'copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'curl'; btn.classList.remove('copied'); }, 1800);
+    }).catch(() => {});
+  }
+}
+
+function copyCurl(ref, cmd) {
+  navigator.clipboard.writeText(cmd).then(() => {
+    const btn = document.getElementById(`copyiconbtn-${ref}`);
+    if (!btn) return;
+    btn.classList.add('copied');
+    setTimeout(() => btn.classList.remove('copied'), 1500);
+  }).catch(() => {});
+}
+
+// ---- Main loop ----
+async function mainLoop() {
+  await pollAll();
+}
+
+mainLoop();
+setInterval(mainLoop, POLL_INTERVAL);
+</script>
+</body>
+</html>

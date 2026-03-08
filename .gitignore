@@ -1,0 +1,38 @@
+# Rust build artifacts
+/target/
+/client/rust/target/
+/client/rust/Cargo.lock
+/client/typescript/node_modules/
+/client/typescript/dist/
+/client/erlang/*.beam
+/client/erlang/erl_crash.dump
+
+# Cargo lock - include for binaries, exclude for libraries
+# Since this is an application, we include Cargo.lock
+# (uncomment next line if you want to exclude it)
+# Cargo.lock
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+*.orig
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+erl_crash.dump
