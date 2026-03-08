@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_mqtt_integration:
+        description: "Run optional MQTT integration job"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  test-default:
+    name: Test (default)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run default tests
+        run: cargo test --locked
+
+  test-features:
+    name: Test (sse,mqtt features)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run feature tests
+        run: cargo test --locked --features sse,mqtt
+
+  test-blackbox:
+    name: Test (blackbox binary)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run blackbox integration test
+        run: cargo test --locked --test blackbox_binary
+
+  test-mqtt-integration:
+    name: Test (optional mqtt integration)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_mqtt_integration }}
+    continue-on-error: true
+    services:
+      mosquitto:
+        image: eclipse-mosquitto:2
+        ports:
+          - 1883:1883
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run MQTT integration test
+        env:
+          JMESTRAP_RUN_MQTT_INTEGRATION: "1"
+          JMESTRAP_MQTT_HOST: "127.0.0.1"
+          JMESTRAP_MQTT_PORT: "1883"
+        run: cargo test --locked --features mqtt --test mqtt_integration

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMESTrap — Weather Station Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { padding: 16px 24px; border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; justify-content: space-between; }
+  header div { display: flex; flex-direction: column; }
+  header h1 { font-size: 1.2rem; color: #fff; letter-spacing: 0.5px; }
+  header h1 span { color: #7f8fa6; font-weight: 400; }
+  header p { font-size: 0.75rem; color: #7f8fa6; margin-top: 2px; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-family: 'SF Mono', 'Consolas', monospace; color: #7f8fa6; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #e74c3c; transition: background 0.3s; flex-shrink: 0; }
+  .dot.ok { background: #2ecc71; }
+  .columns { display: grid; grid-template-columns: 1fr 1.2fr 0.8fr; gap: 1px; flex: 1; overflow: hidden; background: #2a2a4a; }
+  .column { background: #1a1a2e; display: flex; flex-direction: column; overflow: hidden; }
+  .col-header { padding: 12px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: #7f8fa6; border-bottom: 1px solid #2a2a4a; font-weight: 600; }
+  .col-body { flex: 1; overflow-y: auto; padding: 12px; }
+  .col-body::-webkit-scrollbar { width: 4px; }
+  .col-body::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
+
+  /* Events */
+  .event-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 16px; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.78rem; margin-bottom: 4px; color: #fff; white-space: nowrap; }
+  .event-pill.temp { background: #2980b9; }
+  .event-pill.humidity { background: #27ae60; }
+  .event-pill.wind { background: #636e72; }
+  .event-pill.alert { background: #c0392b; }
+  .event-time { font-size: 0.65rem; color: rgba(255,255,255,0.5); margin-left: 4px; }
+
+  /* Recordings */
+  .rec-buttons { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .rec-buttons button { background: #16213e; border: 1px solid #2a2a4a; color: #e0e0e0; padding: 10px 14px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 0.8rem; transition: border-color 0.2s, background 0.2s; }
+  .rec-buttons button:hover { border-color: #4a6fa5; background: #1c2e4f; }
+  .rec-buttons button strong { display: block; margin-bottom: 2px; color: #fff; }
+  .rec-buttons button span { font-size: 0.7rem; color: #7f8fa6; }
+  .rec-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 8px; position: relative; }
+  .rec-card .rec-head { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; cursor: pointer; }
+  .rec-card .rec-head .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .rec-card .rec-head .indicator.active { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; }
+  .rec-card .rec-head .indicator.done { background: #2ecc71; }
+  .rec-card .delete-btn { position: absolute; top: 8px; right: 10px; background: none; border: none; color: #636e72; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 4px; }
+  .rec-card .delete-btn:hover { color: #e74c3c; }
+  .rec-events { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2a4a; max-height: 200px; overflow-y: auto; }
+  .rec-events.open { display: block; }
+  .rec-events .rev { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.7rem; color: #7f8fa6; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Log */
+  .log-entry { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.75rem; padding: 3px 0; color: #b0b0c0; border-bottom: 1px solid #1e1e38; }
+  .log-entry .log-ts { color: #555570; margin-right: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>JMESTrap <span>— Weather Station Demo</span></h1>
+    <p>Event stream recorder with JMESPath predicates</p>
+  </div>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">connecting…</span>
+  </div>
+</header>
+<div class="columns">
+  <div class="column">
+    <div class="col-header">Event Stream</div>
+    <div class="col-body" id="events" style="display:flex; flex-direction:column-reverse;"></div>
+  </div>
+  <div class="column">
+    <div class="col-header">Recordings</div>
+    <div class="col-body">
+      <div class="rec-buttons">
+        <button onclick="startRec({sources:['station'],until:{type:'order',predicates:[&quot;event=='alert'&quot;]}},'Record until alert')">
+          <strong>Record until alert</strong>
+          <span>Stop when any alert event arrives</span>
+        </button>
+        <button onclick="startRec({sources:['station'],matching:&quot;event=='temp'&quot;,until:{type:'order',predicates:[&quot;event=='temp' && value > `30`&quot;,&quot;event=='temp' && value < `10`&quot;]}},'Temp >30 then <10')">
+          <strong>Temp &gt; 30°C → &lt; 10°C</strong>
+          <span>Temp events only: finish when it drops below 10°C after going above 30°C</span>
+        </button>
+        <button onclick="startRec({sources:['station'],until:{type:'any_order',predicates:[&quot;event=='temp'&quot;,&quot;event=='humidity'&quot;,&quot;event=='wind'&quot;,&quot;event=='alert'&quot;]}},'Catch all weather types')">
+          <strong>Catch all weather types</strong>
+          <span>Complete when all four event types seen</span>
+        </button>
+      </div>
+      <div id="recordings"></div>
+    </div>
+  </div>
+  <div class="column">
+    <div class="col-header">Log</div>
+    <div class="col-body" id="log"></div>
+  </div>
+</div>
+<script>
+const BASE = 'http://localhost:9000';
+const MAX_EVENTS = 50;
+const ALERT_MSGS = ['High temperature warning','Storm approaching','Sensor malfunction','Low visibility'];
+
+// --- Helpers ---
+function ts() { return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const d = document.createElement('div');
+  d.className = 'log-entry';
+  d.innerHTML = `<span class="log-ts">${ts()}</span>${msg}`;
+  el.prepend(d);
+  while (el.children.length > 200) el.lastChild.remove();
+}
+
+function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+function pick(arr) { return arr[rand(0, arr.length - 1)]; }
+
+// --- Connection check ---
+async function checkConnection() {
+  try {
+    const r = await fetch(`${BASE}/ping`);
+    const j = await r.json();
+    const ok = j.status === 'ok';
+    document.getElementById('statusDot').className = 'dot' + (ok ? ' ok' : '');
+    document.getElementById('statusText').textContent = ok ? 'connected' : 'error';
+  } catch {
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'offline';
+  }
+}
+setInterval(checkConnection, 5000);
+checkConnection();
+
+// --- Event injection ---
+function makeEvent() {
+  if (Math.random() < 0.05) {
+    return { event: 'alert', level: pick(['warning','critical']), message: pick(ALERT_MSGS) };
+  }
+  const t = pick(['temp','humidity','wind']);
+  if (t === 'temp') return { event:'temp', value: rand(-1,35), unit:'°C' };
+  if (t === 'humidity') return { event:'humidity', value: rand(40,90), unit:'%' };
+  return { event:'wind', value: rand(0,35), unit:'m/s' };
+}
+
+function pillText(p) {
+  if (p.event === 'alert') return `alert ⚠ ${p.message || p.level || ''}`;
+  if (p.value != null) return `${p.event} ${p.value}${p.unit || ''}`;
+  return p.event || JSON.stringify(p);
+}
+
+function addEventPill(payload) {
+  const el = document.getElementById('events');
+  const d = document.createElement('div');
+  const pill = document.createElement('span');
+  pill.className = `event-pill ${payload.event}`;
+  pill.textContent = pillText(payload);
+  const time = document.createElement('span');
+  time.className = 'event-time';
+  time.textContent = ts();
+  pill.appendChild(time);
+  d.appendChild(pill);
+  el.prepend(d);
+  while (el.children.length > MAX_EVENTS) el.lastChild.remove();
+}
+
+let injecting = false;
+async function injectEvent() {
+  const payload = makeEvent();
+  try {
+    await fetch(`${BASE}/events/station`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    addEventPill(payload);
+  } catch (e) {
+    log(`✗ Inject failed: ${e.message}`);
+  }
+}
+
+function startInjecting() {
+  if (injecting) return;
+  injecting = true;
+  log('Injecting events… (2/sec)');
+  setInterval(injectEvent, 500);
+}
+
+// --- Recordings ---
+const recState = {}; // ref -> { desc, events, finished, abortCtrl }
+
+function renderRecordings() {
+  const el = document.getElementById('recordings');
+  el.innerHTML = '';
+  const refs = Object.keys(recState).map(Number).sort((a,b) => b - a);
+  for (const ref of refs) {
+    const s = recState[ref];
+    const card = document.createElement('div');
+    card.className = 'rec-card';
+    const done = s.finished;
+    card.innerHTML = `
+      <div class="rec-head">
+        <span class="indicator ${done ? 'done' : 'active'}"></span>
+        <span>${done ? '✓' : '◉'} Recording #${ref} — ${done ? `done! ${s.events.length} events` : 'waiting…'}</span>
+      </div>
+      <button class="delete-btn" title="Delete">×</button>
+      ${done ? `<div class="rec-events" id="rev-${ref}"></div>` : ''}
+    `;
+    card.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); deleteRec(ref); };
+    if (done) {
+      card.querySelector('.rec-head').onclick = () => {
+        const rv = document.getElementById(`rev-${ref}`);
+        if (rv) rv.classList.toggle('open');
+      };
+      el.appendChild(card);
+      const rv = card.querySelector(`#rev-${ref}`);
+      if (rv) {
+        for (const ev of s.events) {
+          const d = document.createElement('div');
+          d.className = 'rev';
+          const p = ev.payload || ev;
+          d.innerHTML = `<span class="event-pill ${p.event || ''}" style="font-size:0.7rem;padding:2px 8px;margin:1px 0">${pillText(p)}</span>`;
+          rv.appendChild(d);
+        }
+      }
+    } else {
+      el.appendChild(card);
+    }
+  }
+}
+
+async function startRec(config, desc) {
+  try {
+    if (desc) config.description = desc;
+    const r = await fetch(`${BASE}/recordings`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(config)
+    });
+    if (!r.ok) { log(`✗ Start failed: ${r.status}`); return; }
+    const j = await r.json();
+    const ref = j.reference;
+    recState[ref] = { desc, events: [], finished: false, abortCtrl: new AbortController() };
+    log(`▶ Started recording #${ref} — ${desc}`);
+    renderRecordings();
+    pollRec(ref);
+  } catch (e) {
+    log(`✗ Start failed: ${e.message}`);
+  }
+}
+
+async function pollRec(ref) {
+  const s = recState[ref];
+  if (!s || s.finished) return;
+  try {
+    const r = await fetch(`${BASE}/recordings/${ref}?timeout=10`, { signal: s.abortCtrl.signal });
+    if (!r.ok) { log(`✗ Poll #${ref} failed: ${r.status}`); return; }
+    const j = await r.json();
+    s.events = j.events || [];
+    if (j.finished) {
+      s.finished = true;
+      log(`✓ Recording #${ref} complete — ${s.events.length} events captured`);
+      renderRecordings();
+    } else {
+      renderRecordings();
+      pollRec(ref);
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    log(`✗ Poll #${ref} error: ${e.message}`);
+    // retry after short delay
+    setTimeout(() => pollRec(ref), 2000);
+  }
+}
+
+async function deleteRec(ref) {
+  const s = recState[ref];
+  if (s && s.abortCtrl) s.abortCtrl.abort();
+  try {
+    await fetch(`${BASE}/recordings/${ref}`, { method: 'DELETE' });
+  } catch {}
+  delete recState[ref];
+  log(`🗑 Deleted recording #${ref}`);
+  renderRecordings();
+}
+
+// --- Boot ---
+startInjecting();
+</script>
+</body>
+</html>

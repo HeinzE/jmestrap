@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMESTrap — Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { padding: 12px 24px; border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; justify-content: space-between; }
+  header div { display: flex; flex-direction: column; }
+  header h1 { font-size: 1.2rem; color: #fff; letter-spacing: 0.5px; }
+  header h1 span { color: #7f8fa6; font-weight: 400; }
+  header p { font-size: 0.75rem; color: #7f8fa6; margin-top: 2px; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-family: 'SF Mono', 'Consolas', monospace; color: #7f8fa6; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #e74c3c; transition: background 0.3s; flex-shrink: 0; }
+  .dot.ok { background: #2ecc71; }
+  .columns { display: grid; grid-template-columns: 260px 1fr; gap: 1px; flex: 1; overflow: hidden; background: #2a2a4a; }
+  .column { background: #1a1a2e; display: flex; flex-direction: column; overflow: hidden; }
+  .col-header { padding: 10px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: #7f8fa6; border-bottom: 1px solid #2a2a4a; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .col-header .badge { background: #2a2a4a; color: #7f8fa6; padding: 1px 8px; border-radius: 10px; font-size: 0.65rem; }
+  .col-body { flex: 1; overflow-y: auto; padding: 10px; }
+  .col-body::-webkit-scrollbar { width: 4px; }
+  .col-body::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
+
+  /* Sources panel */
+  .source-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; cursor: pointer; border: 1px solid transparent; transition: border-color 0.2s; }
+  .source-card:hover { border-color: #2a2a4a; }
+  .source-card.selected { border-color: #4a6fa5; }
+  .source-name { font-size: 0.9rem; font-weight: 600; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .source-activity { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .source-activity.bright { background: #2ecc71; box-shadow: 0 0 4px #2ecc71; }
+  .source-activity.dim { background: #f39c12; }
+  .source-activity.grey { background: #555570; }
+  .source-stats { display: flex; gap: 12px; margin-top: 2px; font-size: 0.65rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; }
+  .rec-badge { font-size: 0.6rem; padding: 1px 6px; border-radius: 8px; background: #1e3a5f; color: #5dade2; margin-left: auto; }
+  .no-sources { color: #555570; font-size: 0.8rem; padding: 20px; text-align: center; }
+
+  /* Recordings panel */
+  .rec-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; position: relative; }
+  .rec-head { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; cursor: pointer; }
+  .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .indicator.active { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; }
+  .indicator.done { background: #2ecc71; }
+  .indicator.stopped { background: #636e72; }
+  .rec-desc { font-size: 0.78rem; color: #b0b0c0; margin-top: 3px; font-style: italic; }
+  .rec-detail { font-size: 0.7rem; color: #7f8fa6; font-family: 'SF Mono', 'Consolas', monospace; margin-top: 4px; }
+  .rec-detail .label { color: #555570; }
+  .rec-timing { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; font-size: 0.65rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; }
+  .rec-timing .tm-val { color: #7f8fa6; }
+  .rec-events { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2a4a; max-height: 250px; overflow-y: auto; }
+  .rec-events.open { display: block; }
+  .rec-ev-row { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.68rem; color: #7f8fa6; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec-ev-row .ev-ts { color: #555570; margin-right: 6px; }
+  .rec-ev-row .ev-until { color: #2ecc71; font-weight: 600; }
+  .delete-btn { position: absolute; top: 8px; right: 10px; background: none; border: none; color: #636e72; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 4px; }
+  .delete-btn:hover { color: #e74c3c; }
+  .no-recordings { color: #555570; font-size: 0.8rem; padding: 20px; text-align: center; }
+  .until-progress { margin-top: 6px; }
+  .until-pred { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-family: 'SF Mono', 'Consolas', monospace; padding: 1px 0; }
+  .until-pred .pred-marker { flex-shrink: 0; font-size: 0.7rem; }
+  .until-pred .pred-marker.matched { color: #2ecc71; }
+  .until-pred .pred-marker.pending { color: #555570; }
+  .until-pred .pred-expr { color: #7f8fa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .until-pred .pred-expr.matched { color: #555570; text-decoration: line-through; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>JMESTrap <span>— Dashboard</span></h1>
+    <p>Live introspection — sources and recordings</p>
+  </div>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">connecting…</span>
+  </div>
+</header>
+<div class="columns">
+
+  <!-- Left: Sources -->
+  <div class="column">
+    <div class="col-header">Sources <span class="badge" id="sourceCount">0</span></div>
+    <div class="col-body">
+      <div id="sources"><div class="no-sources">No sources yet</div></div>
+    </div>
+  </div>
+
+  <!-- Right: Recordings -->
+  <div class="column">
+    <div class="col-header">Recordings <span class="badge" id="recCount">0</span></div>
+    <div class="col-body" id="recordings">
+      <div class="no-recordings">No recordings</div>
+    </div>
+  </div>
+
+</div>
+<script>
+const BASE = location.origin.replace(location.port, '9000');
+const POLL_INTERVAL = 1500;
+
+// ---- State ----
+let sources = [];
+let recordings = [];
+let selectedSource = null;
+let expandedRecs = new Set();
+
+// ---- Helpers ----
+function fmtMs(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
+       + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function fmtDuration(startMs, endMs) {
+  if (!startMs || !endMs) return '—';
+  const diff = endMs - startMs;
+  if (diff < 1000) return diff + 'ms';
+  if (diff < 60000) return (diff / 1000).toFixed(1) + 's';
+  return (diff / 60000).toFixed(1) + 'min';
+}
+
+function fmtAgo(ms) {
+  if (!ms) return '';
+  const ago = Date.now() - ms;
+  if (ago < 1000) return 'just now';
+  if (ago < 60000) return Math.floor(ago / 1000) + 's ago';
+  if (ago < 3600000) return Math.floor(ago / 60000) + 'min ago';
+  return Math.floor(ago / 3600000) + 'h ago';
+}
+
+function fmtCount(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+
+function truncJson(obj) {
+  return JSON.stringify(obj);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---- API polling ----
+async function fetchJson(path) {
+  const r = await fetch(`${BASE}${path}`);
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+
+async function pollAll() {
+  try {
+    const [ping, srcResp, recResp] = await Promise.all([
+      fetchJson('/ping'),
+      fetchJson('/sources'),
+      fetchJson('/recordings'),
+    ]);
+    const ok = ping.status === 'ok';
+    document.getElementById('statusDot').className = 'dot' + (ok ? ' ok' : '');
+    document.getElementById('statusText').textContent = ok ? `connected — ${BASE}` : 'error';
+
+    sources = srcResp.sources || [];
+    recordings = recResp.recordings || recResp || [];
+    renderSources();
+  } catch (e) {
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'offline';
+  }
+}
+
+// ---- Sources ----
+function activityClass(lastSeenMs) {
+  if (!lastSeenMs) return 'grey';
+  const age = Date.now() - lastSeenMs;
+  if (age < 3000) return 'bright';
+  if (age < 10000) return 'dim';
+  return 'grey';
+}
+
+function renderSources() {
+  const el = document.getElementById('sources');
+  document.getElementById('sourceCount').textContent = sources.length;
+  if (sources.length === 0) {
+    el.innerHTML = '<div class="no-sources">No sources yet</div>';
+    return;
+  }
+  const sorted = [...sources].sort((a, b) => (b.last_seen_ms || 0) - (a.last_seen_ms || 0) || (b.event_count || 0) - (a.event_count || 0));
+  el.innerHTML = '';
+  for (const src of sorted) {
+    const name = src.source || src;
+    const card = document.createElement('div');
+    card.className = 'source-card' + (name === selectedSource ? ' selected' : '');
+    card.onclick = () => { selectedSource = selectedSource === name ? null : name; renderSources(); renderRecordings(); };
+    const activity = activityClass(src.last_seen_ms);
+    const recCount = src.active_recording_count || 0;
+    card.innerHTML = `
+      <div class="source-name">
+        <span class="source-activity ${activity}"></span>
+        ${esc(name)}
+        ${recCount > 0 ? `<span class="rec-badge">${recCount} rec</span>` : ''}
+      </div>
+      <div class="source-stats">
+        <span>${fmtCount(src.event_count || 0)} events</span>
+      </div>
+    `;
+    el.appendChild(card);
+  }
+}
+
+// ---- Recordings ----
+function renderRecordings() {
+  const el = document.getElementById('recordings');
+
+  // Save scroll positions of expanded event lists
+  const scrollPositions = {};
+  for (const ref of expandedRecs) {
+    const rv = document.getElementById(`rev-${ref}`);
+    if (rv) scrollPositions[ref] = rv.scrollTop;
+  }
+
+  const visible = recordings.filter(r => {
+    if (!selectedSource) return true;
+    const srcs = r.sources || [];
+    return srcs.length === 0 || srcs.includes(selectedSource);
+  });
+  const active = visible.filter(r => !r.finished);
+  const done = visible.filter(r => r.finished);
+  const all = [...active, ...done];
+  document.getElementById('recCount').textContent = all.length;
+  if (all.length === 0) {
+    el.innerHTML = '<div class="no-recordings">No recordings</div>';
+    return;
+  }
+  el.innerHTML = '';
+  for (const rec of all) {
+    const card = document.createElement('div');
+    card.className = 'rec-card';
+    const st = rec.finished ? 'done' : 'active';
+    const evCount = (rec.events && rec.events.length) ? rec.events.length : (rec.event_count || 0);
+    const srcList = (rec.sources || []).join(', ') || 'all';
+    const desc = rec.description || '';
+
+    let detailHtml = '';
+    if (rec.matching_expr) detailHtml += `<div><span class="label">matching:</span> ${esc(rec.matching_expr)}</div>`;
+
+    // Timing info
+    const created = fmtMs(rec.created_at_ms);
+    const duration = rec.finished
+      ? fmtDuration(rec.created_at_ms, rec.finished_at_ms)
+      : fmtAgo(rec.created_at_ms);
+    const evalsText = rec.events_evaluated != null ? fmtCount(rec.events_evaluated) : '—';
+    const selectivity = (rec.events_evaluated > 0 && evCount > 0)
+      ? Math.round(evCount / rec.events_evaluated * 100) + '%'
+      : '';
+
+    let timingHtml = `<div class="rec-timing">`;
+    timingHtml += `<span><span class="label">created:</span> <span class="tm-val">${created}</span></span>`;
+    if (rec.first_event_at_ms) {
+      timingHtml += `<span><span class="label">first:</span> <span class="tm-val">${fmtMs(rec.first_event_at_ms)}</span></span>`;
+    }
+    if (rec.last_event_at_ms) {
+      timingHtml += `<span><span class="label">last:</span> <span class="tm-val">${fmtMs(rec.last_event_at_ms)}</span></span>`;
+    }
+    if (rec.finished) {
+      timingHtml += `<span><span class="label">duration:</span> <span class="tm-val">${duration}</span></span>`;
+    } else {
+      timingHtml += `<span><span class="label">age:</span> <span class="tm-val">${duration}</span></span>`;
+    }
+    timingHtml += `<span><span class="label">evaluated:</span> <span class="tm-val">${evalsText}${selectivity ? ' (' + selectivity + ' recorded)' : ''}</span></span>`;
+    timingHtml += `</div>`;
+
+    let untilHtml = '';
+    if (rec.until && rec.until.predicates) {
+      const preds = rec.until.predicates;
+      const matchedCount = preds.filter(p => p.matched).length;
+      untilHtml = `
+        <div class="until-progress">
+          <div style="font-size:0.65rem;color:#555570;margin-bottom:3px">until (${rec.until.type}) — ${matchedCount}/${preds.length}</div>
+          ${preds.map(p => `
+            <div class="until-pred">
+              <span class="pred-marker ${p.matched ? 'matched' : 'pending'}">${p.matched ? '✓' : '○'}</span>
+              <span class="pred-expr ${p.matched ? 'matched' : ''}">${esc(p.expr)}</span>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    card.innerHTML = `
+      <div class="rec-head" onclick="toggleRecEvents(${rec.reference})">
+        <span class="indicator ${st}"></span>
+        <span>#${rec.reference} — ${rec.finished ? '✓ done' : '◉ recording'} — ${evCount} event${evCount!==1?'s':''}</span>
+      </div>
+      <button class="delete-btn" onclick="deleteRec(${rec.reference})" title="Delete">×</button>
+      ${desc ? `<div class="rec-desc">${esc(desc)}</div>` : ''}
+      <div class="rec-detail">
+        <div><span class="label">sources:</span> ${esc(srcList)}</div>
+        ${detailHtml}
+      </div>
+      ${timingHtml}
+      ${untilHtml}
+      <div class="rec-events${expandedRecs.has(rec.reference) ? ' open' : ''}" id="rev-${rec.reference}"></div>
+    `;
+    el.appendChild(card);
+
+    // Render captured events
+    if (rec.events && rec.events.length) {
+      const rv = card.querySelector(`#rev-${rec.reference}`);
+      for (const ev of rec.events) {
+        const row = document.createElement('div');
+        row.className = 'rec-ev-row';
+        const evTs = ev.recorded_at_ms ? `<span class="ev-ts">${fmtMs(ev.recorded_at_ms)}</span>` : '';
+        const untilMark = ev.until_predicate != null ? `<span class="ev-until">[until:${ev.until_predicate}]</span> ` : '';
+        const inner = ev.payload || ev;
+        row.innerHTML = `${evTs}${untilMark}${truncJson(inner)}`;
+        rv.appendChild(row);
+      }
+    }
+  }
+
+  // Restore scroll positions
+  for (const [ref, top] of Object.entries(scrollPositions)) {
+    const rv = document.getElementById(`rev-${ref}`);
+    if (rv) rv.scrollTop = top;
+  }
+}
+
+function toggleRecEvents(ref) {
+  if (expandedRecs.has(ref)) {
+    expandedRecs.delete(ref);
+  } else {
+    expandedRecs.add(ref);
+  }
+  const rv = document.getElementById(`rev-${ref}`);
+  if (rv) rv.classList.toggle('open');
+}
+
+async function deleteRec(ref) {
+  try {
+    await fetch(`${BASE}/recordings/${ref}`, { method: 'DELETE' });
+    recordings = recordings.filter(r => r.reference !== ref);
+    renderRecordings();
+  } catch {}
+}
+
+// ---- Polling for recording details ----
+async function pollRecordingDetails() {
+  for (const rec of recordings) {
+    if (rec._detailFetched && rec.finished) continue;
+    try {
+      const detail = await fetchJson(`/recordings/${rec.reference}?timeout=0`);
+      rec.events = detail.events || [];
+      rec.finished = detail.finished;
+      rec._detailFetched = true;
+    } catch {}
+  }
+  renderRecordings();
+}
+
+// ---- Main loop ----
+async function mainLoop() {
+  await pollAll();
+  await pollRecordingDetails();
+}
+
+mainLoop();
+setInterval(mainLoop, POLL_INTERVAL);
+</script>
+</body>
+</html>
