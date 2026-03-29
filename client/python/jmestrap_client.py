@@ -9,7 +9,7 @@ jmestrap_client -- Python client for the JMESTrap REST API.
         until=Until.order("event == 'start'", "event == 'done'"),
     )
     rec.fetch(timeout=15)
-    assert rec.finished
+    assert rec.completed
 
 Suggestion for Pytest fixture pattern:
 
@@ -140,7 +140,7 @@ class Recording:
         return self._status
 
     @property
-    def finished(self) -> bool:
+    def completed(self) -> bool:
         """True after all completion predicates have been satisfied."""
         return self._status == "completed"
 
@@ -197,7 +197,7 @@ class JmesTrap:
             sources=["station_north"],
             until=Until.order("event=='temp'", "value > `30`"),
         )
-        assert rec.fetch(timeout=15).finished
+        assert rec.fetch(timeout=15).completed
     """
 
     def __init__(self, base_url: str = "http://127.0.0.1:9000"):
@@ -249,7 +249,7 @@ class JmesTrap:
         """Return metadata for every recording on the server."""
         return self._get("/recordings").json()["recordings"]
 
-    def list_sources(self) -> list[str]:
+    def list_sources(self) -> list[dict]:
         """Return currently observed event source names."""
         return self._get("/sources").json()["sources"]
 

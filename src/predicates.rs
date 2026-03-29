@@ -94,11 +94,7 @@ impl Jmes {
     }
 
     /// Check if an event matches this predicate.
-    /// `@` (match everything) is short-circuited without JMESPath evaluation.
     pub fn is_match(&self, event: &JsonValue) -> bool {
-        if self.expression == "@" {
-            return true;
-        }
         evaluate_predicate(&self.expression, event)
     }
 
@@ -458,5 +454,49 @@ mod tests {
         // Compile-time validation of predicates inside Until
         assert!(JmesUntil::order(&["event == 'ok'", "bad predicate [["]).is_err());
         assert!(JmesUntil::any_order(&["bad predicate [["]).is_err());
+    }
+
+    #[test]
+    fn test_jmes_true_literal_matches_everything() {
+        let m = Jmes::new("`true`").unwrap();
+
+        // Normal objects — the real use case
+        assert!(m.is_match(&json!({"event": "start"})));
+        assert!(m.is_match(&json!({"value": 42})));
+
+        // Edge cases that `@` would fail on
+        assert!(m.is_match(&json!(false)));
+        assert!(m.is_match(&json!("")));
+        assert!(m.is_match(&json!(0)));
+        assert!(m.is_match(&json!([])));
+
+        // Other values
+        assert!(m.is_match(&json!({})));
+        assert!(m.is_match(&json!(true)));
+        assert!(m.is_match(&json!("hello")));
+
+        // null is unmatchable — filter projections skip null elements
+        // before evaluating the filter expression. Irrelevant in
+        // practice: a null top-level event carries no information.
+        assert!(!m.is_match(&json!(null)));
+    }
+
+    #[test]
+    fn test_jmes_at_fails_on_falsy_values() {
+        // Documents why `@` is not a true match-all — it relies on
+        // JMESPath truthiness, which excludes these values.
+        let m = Jmes::new("@").unwrap();
+
+        // Works for typical event objects
+        assert!(m.is_match(&json!({"event": "start"})));
+
+        // 0 is truthy in JMESPath (only false/null/""/[]/{}  are falsy)
+        assert!(m.is_match(&json!(0)));
+
+        // Fails on JMESPath-falsy values
+        assert!(!m.is_match(&json!(false)));
+        assert!(!m.is_match(&json!(null)));
+        assert!(!m.is_match(&json!("")));
+        assert!(!m.is_match(&json!([])));
     }
 }

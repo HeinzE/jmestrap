@@ -24,7 +24,8 @@ Requires Rust 1.85+ (edition 2024).
 Start the server:
 
 ```bash
-./target/release/jmestrap
+./target/release/jmestrap              # default TTL: 3600s
+./target/release/jmestrap --ttl 7200   # 2-hour TTL
 ```
 
 Create a recording that completes when it sees `event=='start'` followed
@@ -108,7 +109,7 @@ events or because an active recording targets it.
 | `POST` | `/recordings/{ref}/stop` | Stop recording early |
 | `DELETE` | `/recordings/{ref}` | Delete recording |
 | `GET` | `/sources` | List observed sources and stats |
-| `POST` | `/events/{source}` | Inject event (test/debug) |
+| `POST` | `/events/{source}` | Inject event |
 
 ## Recording Payload
 
@@ -128,8 +129,8 @@ events or because an active recording targets it.
 - `sources` — which sources to watch. Empty array watches all sources.
 - `matching` — JMESPath filter. Only matching events are recorded.
   Without `matching`, only events that satisfy `until` predicates are
-  captured. Use `"@"` to record all events (equivalent to "match
-  everything").
+  captured. Use `` `true` `` to record all events (the JMESPath literal
+  `true` is unconditionally truthy).
 - `until` — optional completion condition (`order` or `any_order`).
   Without `until`, the recording runs until explicitly stopped.
 
@@ -142,6 +143,20 @@ Fetched recordings include timing and statistics:
 - `events_evaluated` — total events tested against this recording's
   predicates (including non-matches). Compare with `event_count` to
   gauge selectivity.
+
+### Recording Lifecycle
+
+Recordings are automatically cleaned up after a configurable TTL (default
+3600 seconds, set with `--ttl`):
+
+- **Completed/Stopped** recordings are deleted once `--ttl` seconds have
+  elapsed since they finished.
+- **Running** recordings that have not been fetched within `--ttl` seconds
+  (idle) are also cleaned up.
+- Fetching a recording (`GET /recordings/{ref}`) resets the idle clock,
+  so actively polled recordings are never reaped.
+
+A background reaper runs every 60 seconds to enforce these limits.
 
 ## Event Ingress
 
@@ -219,7 +234,7 @@ The REST API is simple enough to drive from any HTTP client directly.
 Two reference implementations are included as starting points:
 
 - **Rust** (`client/rust/`) — async client with builder pattern (reqwest)
-- **Python** (`client/python/`) — requests-based, with `assert_finished()` for pytest
+- **Python** (`client/python/`) — requests-based, with `assert_completed()` for pytest
 
 A std-only Rust example (no reqwest) is also available:
 `cargo run --example minimal_rust_client`
@@ -250,7 +265,6 @@ JMESTRAP_RUN_PERF_GUARD=1 cargo test perf_guard_single_source_bounded
 
 - Recording references are in-memory counters that reset on server restart.
   Do not persist refs across restarts.
-- No recording TTL or auto-cleanup — stale recordings persist until deleted.
 - MQTT broker integration tests are opt-in to keep default workflows simple.
 - SSE ingress has no reconnect behavior after stream termination.
 

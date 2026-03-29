@@ -39,7 +39,7 @@
   .rec-card { background: #16213e; border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; position: relative; }
   .rec-head { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; cursor: pointer; padding-right: 48px; }
   .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .indicator.active { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; }
+  .indicator.active { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; will-change: opacity; }
   .indicator.done { background: #2ecc71; }
   .indicator.stopped { background: #636e72; }
   .rec-desc { font-size: 0.78rem; color: #b0b0c0; margin-top: 3px; font-style: italic; padding-right: 48px; }
@@ -58,7 +58,7 @@
   .ev-tool-btn:hover { border-color: #4a6fa5; color: #5dade2; }
   .ev-tool-btn.flash { border-color: #2ecc71; color: #2ecc71; }
   .ev-tool-count { font-size: 0.6rem; color: #555570; font-family: 'SF Mono', 'Consolas', monospace; margin-left: auto; }
-  .rec-ev-row { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.68rem; color: #7f8fa6; padding: 2px 6px; white-space: pre; }
+  .rec-ev-row { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.68rem; color: #7f8fa6; padding: 2px 6px 2px 28px; white-space: pre; position: relative; }
   .rec-ev-row:hover { background: #16213e; }
   .rec-ev-row .ev-ts { color: #555570; margin-right: 6px; }
   .rec-ev-row .ev-until { color: #2ecc71; font-weight: 600; }
@@ -105,6 +105,7 @@
   .form-input { width: 100%; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; color: #e0e0e0; padding: 6px 8px; font-size: 0.78rem; font-family: 'SF Mono', 'Consolas', monospace; outline: none; transition: border-color 0.15s; }
   .form-input:focus { border-color: #4a6fa5; }
   .form-input::placeholder { color: #3a3a5a; }
+  .form-input.error { border-color: #e74c3c; }
   .source-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; padding: 4px 6px; cursor: text; transition: border-color 0.15s; }
   .source-chips:focus-within { border-color: #4a6fa5; }
   .chip { display: inline-flex; align-items: center; gap: 4px; background: #1e3a5f; color: #5dade2; border-radius: 3px; padding: 1px 6px; font-size: 0.72rem; font-family: 'SF Mono', 'Consolas', monospace; }
@@ -131,6 +132,46 @@
   .form-feedback.err { color: #e74c3c; }
   .form-divider { border: none; border-top: 1px solid #2a2a4a; margin: 14px 0; }
   .source-hint { font-size: 0.68rem; color: #555570; margin-top: 4px; font-style: italic; }
+
+  /* Predicate Painter */
+  .pp-trigger { position: absolute; left: 4px; top: 2px; background: none; border: 1px solid transparent; color: #555570; cursor: pointer; font-size: 0.62rem; padding: 0 4px; border-radius: 2px; font-family: 'SF Mono', 'Consolas', monospace; opacity: 0.35; transition: opacity 0.15s; line-height: 18px; }
+  .rec-ev-row:hover .pp-trigger { opacity: 0.6; }
+  .pp-trigger:hover { opacity: 1 !important; border-color: #4a6fa5; color: #5dade2; }
+  .pp-panel { background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 4px; margin: 6px 0; overflow: hidden; }
+  .pp-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-bottom: 1px solid #2a2a4a; font-size: 0.65rem; color: #7f8fa6; font-family: 'SF Mono', 'Consolas', monospace; }
+  .pp-close { background: none; border: none; color: #555570; cursor: pointer; font-size: 0.85rem; padding: 0 4px; line-height: 1; }
+  .pp-close:hover { color: #e74c3c; }
+  .pp-tree { max-height: 200px; overflow-y: auto; padding: 6px 8px; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.72rem; line-height: 1.6; }
+  .pp-tree::-webkit-scrollbar { width: 4px; }
+  .pp-tree::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
+  .pp-line { white-space: pre; }
+  .pp-str { color: #f39c12; }
+  .pp-num { color: #5dade2; }
+  .pp-bool { color: #2ecc71; }
+  .pp-null { color: #636e72; }
+  .pp-val { cursor: pointer; border-radius: 2px; padding: 0 2px; transition: background 0.15s, outline 0.15s; }
+  .pp-val:hover { background: #1e3a5f; }
+  .pp-val.painted { background: #264d7a; outline: 1px solid #4a6fa5; }
+  .pp-objkey { cursor: pointer; border-radius: 2px; padding: 0 2px; transition: background 0.15s; color: #b0b0c0; }
+  .pp-objkey:hover { background: #1a3a2e; }
+  .pp-objkey.painted { background: #1a3a2e; color: #2ecc71; outline: 1px solid #2d6a4f; }
+  .pp-collapse { cursor: pointer; color: #555570; user-select: none; }
+  .pp-collapse:hover { color: #7f8fa6; }
+  .pp-group.pp-hidden { display: none; }
+  .pp-opbar { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
+  .pp-op { background: #0f0f23; border: 1px solid #2a2a4a; color: #555570; cursor: pointer; font-size: 0.58rem; padding: 0 4px; border-radius: 2px; font-family: 'SF Mono', 'Consolas', monospace; transition: all 0.15s; line-height: 1.5; }
+  .pp-op:hover { border-color: #4a6fa5; color: #7f8fa6; }
+  .pp-op.active { border-color: #4a6fa5; color: #5dade2; background: #1e3a5f; }
+  .pp-bar { border-top: 1px solid #2a2a4a; padding: 6px 8px; }
+  .pp-combiner { background: #0f0f23; border: 1px solid #2a2a4a; color: #5dade2; cursor: pointer; font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; font-family: 'SF Mono', 'Consolas', monospace; margin-right: 6px; transition: all 0.15s; vertical-align: middle; }
+  .pp-combiner:hover { border-color: #4a6fa5; }
+  .pp-expr { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.7rem; color: #7f8fa6; word-break: break-all; }
+  .pp-expr.empty { color: #555570; font-style: italic; }
+  .pp-expr.error { color: #e74c3c; }
+  .pp-actions { display: flex; gap: 4px; margin-top: 5px; }
+  .pp-act { background: none; border: 1px solid #2a2a4a; color: #555570; cursor: pointer; font-size: 0.6rem; padding: 1px 8px; border-radius: 3px; font-family: 'SF Mono', 'Consolas', monospace; transition: all 0.15s; }
+  .pp-act:hover { border-color: #4a6fa5; color: #5dade2; }
+  .pp-act.flash { border-color: #2ecc71; color: #2ecc71; }
 </style>
 </head>
 <body>
@@ -231,6 +272,7 @@ const BASE = location.protocol === 'file:'
   ? 'http://127.0.0.1:9000'
   : location.origin.replace(location.port, '9000');
 const POLL_INTERVAL = 1500;
+const MAX_CACHED_EVENT_RECS = 10;
 
 // ---- State ----
 let sources = [];
@@ -242,6 +284,23 @@ let sourcesLocked = false;   // false = sort by activity, true = alphabetical
 let stripPrefix = false;     // strip leading digits+underscore from display names
 let sortKey = 'ref';   // 'ref' | 'created' | 'last' | 'first' | 'desc_text'
 let sortAsc = false;   // descending = newest first
+
+// Poll health (P1-5: error backoff, P1-4: change detection)
+let consecutiveFailures = 0;
+let prevSourcesJson = '';
+let prevRecordingsJson = '';
+
+// Keyed DOM node maps (P0-1: incremental updates)
+const sourceNodes = new Map();   // sourceName → DOM element
+const recNodes    = new Map();   // recording reference → DOM element
+
+// Virtual event rendering (P0-2)
+const EV_ROW_HEIGHT  = 18;      // px per event row (from CSS)
+const EV_BUFFER_ROWS = 10;      // extra rows above/below viewport
+const evVirtualState = new Map(); // ref → { sentinel, viewport, startIdx, endIdx, handler }
+
+// Predicate Painter state
+let predicatePainter = null; // { ref, eventIndex, clauses, combiner, panel, rawValues }
 
 // Observe/control mode
 let controlMode = localStorage.getItem('jmestrap-control-mode') === 'true';
@@ -356,6 +415,26 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// ---- Clipboard (P2-9: fallback for non-HTTPS) ----
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  return ok;
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard) {
+    return navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+
 // ---- API polling ----
 async function fetchJson(path) {
   const r = await fetch(`${BASE}${path}`);
@@ -365,26 +444,57 @@ async function fetchJson(path) {
 
 async function pollAll() {
   try {
-    const [ping, srcResp, recResp] = await Promise.all([
-      fetchJson('/ping'),
+    const [srcResp, recResp] = await Promise.all([
       fetchJson('/sources'),
       fetchJson('/recordings'),
     ]);
-    const ok = ping.status === 'ok';
-    document.getElementById('statusDot').className = 'dot' + (ok ? ' ok' : '');
-    document.getElementById('statusText').textContent = ok ? `connected — ${BASE}` : 'error';
-    sources = srcResp.sources || [];
-    const fresh = recResp.recordings || recResp || [];
-    for (const r of fresh) {
-      const prev = recordings.find(p => p.reference === r.reference);
-      if (prev && prev.events) r.events = prev.events;
+    consecutiveFailures = 0;
+    document.getElementById('statusDot').className = 'dot ok';
+    document.getElementById('statusText').textContent = `connected — ${BASE}`;
+
+    // Change detection: skip rendering when responses are identical
+    const srcJson = JSON.stringify(srcResp);
+    const recJson = JSON.stringify(recResp);
+    const srcChanged = srcJson !== prevSourcesJson;
+    const recChanged = recJson !== prevRecordingsJson;
+    prevSourcesJson = srcJson;
+    prevRecordingsJson = recJson;
+
+    if (srcChanged) {
+      sources = srcResp.sources || [];
+      renderSources();
     }
-    recordings = fresh;
-    renderSources();
-    renderRecordings();
+    if (recChanged || srcChanged) {
+      const fresh = recResp.recordings || recResp || [];
+      for (const r of fresh) {
+        const prev = recordings.find(p => p.reference === r.reference);
+        if (prev && prev.events) {
+          r.events = prev.events;
+          r._eventsFetchedAt = prev._eventsFetchedAt;
+        }
+      }
+      recordings = fresh;
+
+      // Evict stale event caches (keep expanded + most recent)
+      const withEvents = recordings.filter(r => r.events && !expandedRecs.has(r.reference));
+      if (withEvents.length > MAX_CACHED_EVENT_RECS) {
+        withEvents.sort((a, b) => (a._eventsFetchedAt || 0) - (b._eventsFetchedAt || 0));
+        const toEvict = withEvents.length - MAX_CACHED_EVENT_RECS;
+        for (let i = 0; i < toEvict; i++) {
+          delete withEvents[i].events;
+          delete withEvents[i]._eventsFetchedAt;
+        }
+      }
+
+      renderRecordings();
+    }
+    return true;
   } catch {
+    consecutiveFailures++;
     document.getElementById('statusDot').className = 'dot';
-    document.getElementById('statusText').textContent = 'offline';
+    const delay = Math.min(POLL_INTERVAL * Math.pow(2, consecutiveFailures), 30000);
+    document.getElementById('statusText').textContent = `offline — retry in ${Math.round(delay / 1000)}s`;
+    return false;
   }
 }
 
@@ -416,55 +526,197 @@ function activityClass(lastSeenMs) {
   return 'grey';
 }
 
+function sourceCardHtml(src, name) {
+  const activity = activityClass(src.last_seen_ms);
+  const recCount = src.active_recording_count || 0;
+  return `
+    <div class="source-name">
+      <span class="source-activity ${activity}"></span>
+      ${esc(displayName(name))}
+      ${recCount > 0 ? `<span class="rec-badge">${recCount} rec</span>` : ''}
+    </div>
+    <div class="source-stats">
+      <span>${fmtCount(src.event_count || 0)} events</span>
+    </div>
+  `;
+}
+
 function renderSources() {
   const el = document.getElementById('sources');
   document.getElementById('hdrSources').textContent = sources.length;
   const totalEvents = sources.reduce((s, src) => s + (src.event_count || 0), 0);
   document.getElementById('hdrEvents').textContent = fmtCount(totalEvents);
   if (sources.length === 0) {
+    sourceNodes.clear();
     el.innerHTML = '<div class="no-sources">No sources yet</div>';
     return;
   }
+  const placeholder = el.querySelector('.no-sources');
+  if (placeholder) placeholder.remove();
+
   const sorted = sourcesLocked
     ? [...sources].sort((a, b) => displayName(a.source || '').localeCompare(displayName(b.source || '')))
     : [...sources].sort((a, b) =>
         (b.last_seen_ms || 0) - (a.last_seen_ms || 0) || (b.event_count || 0) - (a.event_count || 0));
-  el.innerHTML = '';
+
+  const newKeys = new Set(sorted.map(s => s.source || s));
+  for (const [key, node] of sourceNodes) {
+    if (!newKeys.has(key)) { node.remove(); sourceNodes.delete(key); }
+  }
+
+  let prev = null;
   for (const src of sorted) {
     const name = src.source || src;
-    const card = document.createElement('div');
-    card.className = 'source-card' + (name === selectedSource ? ' selected' : '');
-    card.onclick = () => {
-      selectedSource = selectedSource === name ? null : name;
-      renderSources();
-      renderRecordings();
-      syncFormSource(selectedSource);
-    };
-    const activity = activityClass(src.last_seen_ms);
-    const recCount = src.active_recording_count || 0;
-    card.innerHTML = `
-      <div class="source-name">
-        <span class="source-activity ${activity}"></span>
-        ${esc(displayName(name))}
-        ${recCount > 0 ? `<span class="rec-badge">${recCount} rec</span>` : ''}
-      </div>
-      <div class="source-stats">
-        <span>${fmtCount(src.event_count || 0)} events</span>
-      </div>
-    `;
-    el.appendChild(card);
+    let card = sourceNodes.get(name);
+    if (card) {
+      card.className = 'source-card' + (name === selectedSource ? ' selected' : '');
+      card.innerHTML = sourceCardHtml(src, name);
+    } else {
+      card = document.createElement('div');
+      card.className = 'source-card' + (name === selectedSource ? ' selected' : '');
+      card.onclick = () => {
+        selectedSource = selectedSource === name ? null : name;
+        renderSources();
+        renderRecordings();
+        syncFormSource(selectedSource);
+      };
+      card.innerHTML = sourceCardHtml(src, name);
+      sourceNodes.set(name, card);
+    }
+    if (prev) { if (card.previousElementSibling !== prev) prev.after(card); }
+    else { if (card !== el.firstElementChild) el.prepend(card); }
+    prev = card;
   }
 }
 
 // ---- Recordings ----
+
+function buildTimingHtml(rec) {
+  const evCount = rec.event_count || (rec.events ? rec.events.length : 0);
+  const created = fmtMs(rec.created_at_ms);
+  const duration = (rec.status !== 'running')
+    ? fmtDuration(rec.created_at_ms, rec.finished_at_ms)
+    : fmtAgo(rec.created_at_ms);
+  const evalsText = rec.events_evaluated != null ? fmtCount(rec.events_evaluated) : '—';
+  const selectivity = (rec.events_evaluated > 0 && evCount > 0)
+    ? Math.round(evCount / rec.events_evaluated * 100) + '%' : '';
+  let h = `<span><span class="label">created:</span> <span class="tm-val">${created}</span></span>`;
+  if (rec.first_event_at_ms) h += `<span><span class="label">first:</span> <span class="tm-val">${fmtMs(rec.first_event_at_ms)}</span></span>`;
+  if (rec.last_event_at_ms) h += `<span><span class="label">last:</span> <span class="tm-val">${fmtMs(rec.last_event_at_ms)}</span></span>`;
+  h += (rec.status !== 'running')
+    ? `<span><span class="label">duration:</span> <span class="tm-val">${duration}</span></span>`
+    : `<span class="tm-val">${duration}</span>`;
+  h += `<span><span class="label">evaluated:</span> <span class="tm-val">${evalsText}${selectivity ? ' (' + selectivity + ' recorded)' : ''}</span></span>`;
+  return h;
+}
+
+function buildUntilHtml(rec) {
+  if (!rec.until || !rec.until.predicates) return '';
+  const preds = rec.until.predicates;
+  const matchedCount = preds.filter(p => p.matched).length;
+  return `
+    <div class="until-progress">
+      <div style="font-size:0.65rem;color:#555570;margin-bottom:3px">until (${rec.until.type}) — ${matchedCount}/${preds.length}</div>
+      ${preds.map(p => `
+        <div class="until-pred">
+          <span class="pred-marker ${p.matched ? 'matched' : 'pending'}">${p.matched ? '✓' : '○'}</span>
+          <span class="pred-expr ${p.matched ? 'matched' : ''}">${esc(p.expr)}</span>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function recCardHtml(rec) {
+  const st = rec.status === 'completed' ? 'done' : (rec.status === 'stopped' ? 'stopped' : 'active');
+  const isActive = st === 'active';
+  const evCount = rec.event_count || (rec.events ? rec.events.length : 0);
+  const srcList = (rec.sources || []).map(displayName).join(', ') || 'all';
+  const desc = rec.description || '';
+  let detailHtml = '';
+  if (rec.matching_expr) detailHtml += `<div><span class="label">matching:</span> ${esc(rec.matching_expr)}</div>`;
+  const stopBtn = isActive
+    ? `<button class="stop-btn" onclick="event.stopPropagation();stopRec(${rec.reference})" title="Stop recording">◼ stop</button>`
+    : '';
+  const curlCmd = `curl -s '${BASE}/recordings/${rec.reference}?timeout=10'`;
+  return `
+    <div class="rec-actions">${stopBtn}<button class="curl-btn" id="curlbtn-${rec.reference}" onclick="event.stopPropagation();toggleCurl(${rec.reference})" title="Show curl command">curl</button><button class="copy-icon-btn" id="copyiconbtn-${rec.reference}" onclick="event.stopPropagation();copyCurl(${rec.reference},'${esc(curlCmd)}')" title="Copy curl command"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M10 1H4a2 2 0 0 0-2 2v9h1V3a1 1 0 0 1 1-1h6V1zm3 3H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm0 10H6V5h7v9z"/></svg></button><button class="delete-btn" onclick="deleteRec(${rec.reference})" title="Delete">×</button></div>
+    <div class="rec-head" onclick="toggleRecEvents(${rec.reference})">
+      <span class="indicator ${st}"></span>
+      <span>#${rec.reference} — ${rec.status === 'completed' ? '✓ done' : rec.status === 'stopped' ? '◼ stopped' : '◉ recording'} — ${evCount} event${evCount!==1?'s':''}</span>
+    </div>
+    ${desc ? `<div class="rec-desc">${esc(desc)}</div>` : ''}
+    <div class="rec-detail">
+      <div><span class="label">sources:</span> ${esc(srcList)}</div>
+      ${detailHtml}
+    </div>
+    <div class="rec-timing">${buildTimingHtml(rec)}</div>
+    ${buildUntilHtml(rec)}
+    <div class="curl-bar${openCurls.has(rec.reference) ? ' open' : ''}" id="curl-${rec.reference}">${esc(curlCmd)}</div>
+    <div class="ev-toolbar${expandedRecs.has(rec.reference) ? ' open' : ''}" id="evt-${rec.reference}">
+      <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsJSON(${rec.reference})" title="Copy all events as JSON array">copy JSON</button>
+      <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsText(${rec.reference})" title="Copy as text lines">copy text</button>
+      <span class="ev-tool-count">${evCount} evt${evCount!==1?'s':''}</span>
+    </div>
+    <div class="rec-events${expandedRecs.has(rec.reference) ? ' open' : ''}" id="rev-${rec.reference}"></div>
+  `;
+}
+
+function updateRecCard(card, rec) {
+  const st = rec.status === 'completed' ? 'done' : (rec.status === 'stopped' ? 'stopped' : 'active');
+  const isActive = st === 'active';
+  const evCount = rec.event_count || (rec.events ? rec.events.length : 0);
+
+  // Status indicator
+  const indicator = card.querySelector('.indicator');
+  indicator.className = 'indicator ' + st;
+
+  // Head text
+  const headSpan = card.querySelector('.rec-head').children[1];
+  headSpan.textContent = `#${rec.reference} \u2014 ${rec.status === 'completed' ? '\u2713 done' : rec.status === 'stopped' ? '\u25FC stopped' : '\u25C9 recording'} \u2014 ${evCount} event${evCount!==1?'s':''}`;
+
+  // Timing
+  const timingDiv = card.querySelector('.rec-timing');
+  timingDiv.innerHTML = buildTimingHtml(rec);
+
+  // Until progress
+  const oldUntil = card.querySelector('.until-progress');
+  const newUntilHtml = buildUntilHtml(rec);
+  if (newUntilHtml) {
+    if (oldUntil) { oldUntil.outerHTML = newUntilHtml; }
+    else { card.querySelector('.rec-timing').insertAdjacentHTML('afterend', newUntilHtml); }
+  } else if (oldUntil) {
+    oldUntil.remove();
+  }
+
+  // Stop button: add/remove as status changes
+  const actions = card.querySelector('.rec-actions');
+  const stopBtn = actions.querySelector('.stop-btn');
+  if (isActive && !stopBtn) {
+    actions.insertAdjacentHTML('afterbegin',
+      `<button class="stop-btn" onclick="event.stopPropagation();stopRec(${rec.reference})" title="Stop recording">◼ stop</button>`);
+  } else if (!isActive && stopBtn) {
+    stopBtn.remove();
+  }
+
+  // Source list (may change with displayName toggle)
+  const srcList = (rec.sources || []).map(displayName).join(', ') || 'all';
+  const detailDiv = card.querySelector('.rec-detail');
+  let detailHtml = `<div><span class="label">sources:</span> ${esc(srcList)}</div>`;
+  if (rec.matching_expr) detailHtml += `<div><span class="label">matching:</span> ${esc(rec.matching_expr)}</div>`;
+  detailDiv.innerHTML = detailHtml;
+
+  // Event count in toolbar
+  const evtCount = card.querySelector('.ev-tool-count');
+  if (evtCount) evtCount.textContent = `${evCount} evt${evCount!==1?'s':''}`;
+
+  // Render events if expanded (virtual)
+  if (expandedRecs.has(rec.reference) && rec.events) {
+    renderEventsForRec(rec.reference);
+  }
+}
+
 function renderRecordings() {
   const el = document.getElementById('recordings');
-
-  const scrollPositions = {};
-  for (const ref of expandedRecs) {
-    const rv = document.getElementById(`rev-${ref}`);
-    if (rv) scrollPositions[ref] = { top: rv.scrollTop, left: rv.scrollLeft };
-  }
 
   const visible = recordings.filter(r => {
     if (!selectedSource) return true;
@@ -476,116 +728,139 @@ function renderRecordings() {
   document.getElementById('recCount').textContent = all.length;
   const activeCount = recordings.filter(r => (r.status || 'running') === 'running').length;
   document.getElementById('hdrRecording').textContent = activeCount || '—';
+
   if (all.length === 0) {
+    for (const [ref] of recNodes) { evVirtualState.delete(ref); }
+    recNodes.clear();
     el.innerHTML = '<div class="no-recordings">No recordings</div>';
     return;
   }
-  el.innerHTML = '';
-  for (const rec of all) {
-    const card = document.createElement('div');
-    card.className = 'rec-card';
-    const st = rec.status === 'completed' ? 'done' : (rec.status === 'stopped' ? 'stopped' : 'active');
-    const isActive = st === 'active';
-    const evCount = rec.event_count || (rec.events ? rec.events.length : 0);
-    const srcList = (rec.sources || []).map(displayName).join(', ') || 'all';
-    const desc = rec.description || '';
+  const placeholder = el.querySelector('.no-recordings');
+  if (placeholder) placeholder.remove();
 
-    let detailHtml = '';
-    if (rec.matching_expr) detailHtml += `<div><span class="label">matching:</span> ${esc(rec.matching_expr)}</div>`;
-
-    const created = fmtMs(rec.created_at_ms);
-    const duration = (rec.status !== 'running')
-      ? fmtDuration(rec.created_at_ms, rec.finished_at_ms)
-      : fmtAgo(rec.created_at_ms);
-    const evalsText = rec.events_evaluated != null ? fmtCount(rec.events_evaluated) : '—';
-    const selectivity = (rec.events_evaluated > 0 && evCount > 0)
-      ? Math.round(evCount / rec.events_evaluated * 100) + '%' : '';
-
-    let timingHtml = `<div class="rec-timing">`;
-    timingHtml += `<span><span class="label">created:</span> <span class="tm-val">${created}</span></span>`;
-    if (rec.first_event_at_ms) timingHtml += `<span><span class="label">first:</span> <span class="tm-val">${fmtMs(rec.first_event_at_ms)}</span></span>`;
-    if (rec.last_event_at_ms) timingHtml += `<span><span class="label">last:</span> <span class="tm-val">${fmtMs(rec.last_event_at_ms)}</span></span>`;
-    timingHtml += (rec.status !== 'running')
-      ? `<span><span class="label">duration:</span> <span class="tm-val">${duration}</span></span>`
-      : `<span class="tm-val">${duration}</span>`;
-    timingHtml += `<span><span class="label">evaluated:</span> <span class="tm-val">${evalsText}${selectivity ? ' (' + selectivity + ' recorded)' : ''}</span></span>`;
-    timingHtml += `</div>`;
-
-    let untilHtml = '';
-    if (rec.until && rec.until.predicates) {
-      const preds = rec.until.predicates;
-      const matchedCount = preds.filter(p => p.matched).length;
-      untilHtml = `
-        <div class="until-progress">
-          <div style="font-size:0.65rem;color:#555570;margin-bottom:3px">until (${rec.until.type}) — ${matchedCount}/${preds.length}</div>
-          ${preds.map(p => `
-            <div class="until-pred">
-              <span class="pred-marker ${p.matched ? 'matched' : 'pending'}">${p.matched ? '✓' : '○'}</span>
-              <span class="pred-expr ${p.matched ? 'matched' : ''}">${esc(p.expr)}</span>
-            </div>
-          `).join('')}
-        </div>`;
-    }
-
-    const stopBtn = isActive
-      ? `<button class="stop-btn" onclick="event.stopPropagation();stopRec(${rec.reference})" title="Stop recording">◼ stop</button>`
-      : '';
-    const curlCmd = `curl -s '${BASE}/recordings/${rec.reference}?timeout=10'`;
-
-    card.innerHTML = `
-      <div class="rec-actions">${stopBtn}<button class="curl-btn" id="curlbtn-${rec.reference}" onclick="event.stopPropagation();toggleCurl(${rec.reference})" title="Show curl command">curl</button><button class="copy-icon-btn" id="copyiconbtn-${rec.reference}" onclick="event.stopPropagation();copyCurl(${rec.reference},'${esc(curlCmd)}')" title="Copy curl command"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M10 1H4a2 2 0 0 0-2 2v9h1V3a1 1 0 0 1 1-1h6V1zm3 3H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm0 10H6V5h7v9z"/></svg></button><button class="delete-btn" onclick="deleteRec(${rec.reference})" title="Delete">×</button></div>
-      <div class="rec-head" onclick="toggleRecEvents(${rec.reference})">
-        <span class="indicator ${st}"></span>
-        <span>#${rec.reference} — ${rec.status === 'completed' ? '✓ done' : rec.status === 'stopped' ? '◼ stopped' : '◉ recording'} — ${evCount} event${evCount!==1?'s':''}</span>
-      </div>
-      ${desc ? `<div class="rec-desc">${esc(desc)}</div>` : ''}
-      <div class="rec-detail">
-        <div><span class="label">sources:</span> ${esc(srcList)}</div>
-        ${detailHtml}
-      </div>
-      ${timingHtml}
-      ${untilHtml}
-      <div class="curl-bar${openCurls.has(rec.reference) ? ' open' : ''}" id="curl-${rec.reference}">${esc(curlCmd)}</div>
-      <div class="ev-toolbar${expandedRecs.has(rec.reference) ? ' open' : ''}" id="evt-${rec.reference}">
-        <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsJSON(${rec.reference})" title="Copy all events as JSON array">copy JSON</button>
-
-        <button class="ev-tool-btn" onclick="event.stopPropagation();copyEventsText(${rec.reference})" title="Copy as text lines">copy text</button>
-        <span class="ev-tool-count">${evCount} evt${evCount!==1?'s':''}</span>
-      </div>
-      <div class="rec-events${expandedRecs.has(rec.reference) ? ' open' : ''}" id="rev-${rec.reference}"></div>
-    `;
-    el.appendChild(card);
-
-    if (rec.events && rec.events.length) {
-      const rv = card.querySelector(`#rev-${rec.reference}`);
-      for (const ev of rec.events) {
-        const row = document.createElement('div');
-        row.className = 'rec-ev-row';
-        const evTs = ev.recorded_at_ms ? `<span class="ev-ts">${fmtMs(ev.recorded_at_ms)}</span>` : '';
-        const untilMark = ev.until_predicate != null ? `<span class="ev-until">[until:${ev.until_predicate}]</span> ` : '';
-        const inner = ev.payload || ev;
-        row.innerHTML = `${evTs}${untilMark}${esc(JSON.stringify(inner))}`;
-        rv.appendChild(row);
-      }
+  const newRefs = new Set(all.map(r => r.reference));
+  for (const [ref, node] of recNodes) {
+    if (!newRefs.has(ref)) {
+      if (predicatePainter && predicatePainter.ref === ref) ppClose();
+      node.remove();
+      recNodes.delete(ref);
+      evVirtualState.delete(ref);
     }
   }
 
-  for (const [ref, pos] of Object.entries(scrollPositions)) {
-    const rv = document.getElementById(`rev-${ref}`);
-    if (rv) { rv.scrollTop = pos.top; rv.scrollLeft = pos.left; }
+  let prev = null;
+  for (const rec of all) {
+    let card = recNodes.get(rec.reference);
+    if (card) {
+      updateRecCard(card, rec);
+    } else {
+      card = document.createElement('div');
+      card.className = 'rec-card';
+      card.innerHTML = recCardHtml(rec);
+      recNodes.set(rec.reference, card);
+      // Render events if already expanded (e.g. after detail fetch)
+      if (expandedRecs.has(rec.reference) && rec.events) {
+        el.appendChild(card);
+        renderEventsForRec(rec.reference);
+      }
+    }
+    if (prev) { if (card.previousElementSibling !== prev) prev.after(card); }
+    else { if (card !== el.firstElementChild) el.prepend(card); }
+    prev = card;
+  }
+}
+
+// ---- Virtual event rendering (P0-2) ----
+
+function renderEventsForRec(ref) {
+  const rec = recordings.find(r => r.reference === ref);
+  const container = document.getElementById(`rev-${ref}`);
+  if (!rec || !container || !rec.events) return;
+
+  const events = rec.events;
+  const totalHeight = events.length * EV_ROW_HEIGHT;
+
+  let state = evVirtualState.get(ref);
+  if (!state) {
+    container.innerHTML = '';
+    container.style.position = 'relative';
+
+    const sentinel = document.createElement('div');
+    sentinel.style.height = totalHeight + 'px';
+    sentinel.style.pointerEvents = 'none';
+    container.appendChild(sentinel);
+
+    const viewport = document.createElement('div');
+    viewport.style.position = 'absolute';
+    viewport.style.top = '0';
+    viewport.style.left = '0';
+    viewport.style.right = '0';
+    container.appendChild(viewport);
+
+    state = { sentinel, viewport, startIdx: -1, endIdx: -1, handler: null };
+    state.handler = () => renderVisibleEvents(ref);
+    container.addEventListener('scroll', state.handler, { passive: true });
+    evVirtualState.set(ref, state);
+  }
+
+  state.sentinel.style.height = totalHeight + 'px';
+  state.startIdx = -1;  // force re-render
+  renderVisibleEvents(ref);
+}
+
+function renderVisibleEvents(ref) {
+  const rec = recordings.find(r => r.reference === ref);
+  const container = document.getElementById(`rev-${ref}`);
+  const state = evVirtualState.get(ref);
+  if (!rec || !container || !state || !rec.events) return;
+
+  const events = rec.events;
+  const scrollTop = container.scrollTop;
+  const viewportHeight = container.clientHeight || 280;
+
+  const startIdx = Math.max(0, Math.floor(scrollTop / EV_ROW_HEIGHT) - EV_BUFFER_ROWS);
+  const endIdx = Math.min(events.length, Math.ceil((scrollTop + viewportHeight) / EV_ROW_HEIGHT) + EV_BUFFER_ROWS);
+
+  if (startIdx === state.startIdx && endIdx === state.endIdx) return;
+  state.startIdx = startIdx;
+  state.endIdx = endIdx;
+
+  state.viewport.style.transform = `translateY(${startIdx * EV_ROW_HEIGHT}px)`;
+  state.viewport.innerHTML = '';
+  for (let i = startIdx; i < endIdx; i++) {
+    const ev = events[i];
+    const row = document.createElement('div');
+    row.className = 'rec-ev-row';
+    row.style.height = EV_ROW_HEIGHT + 'px';
+    const evTs = ev.recorded_at_ms ? `<span class="ev-ts">${fmtMs(ev.recorded_at_ms)}</span>` : '';
+    const untilMark = ev.until_predicate != null ? `<span class="ev-until">[until:${ev.until_predicate}]</span> ` : '';
+    const inner = ev.payload || ev;
+    row.innerHTML = `<button class="pp-trigger" onclick="event.stopPropagation();ppOpen(${ref},${i})" title="Build predicate">{ }</button>${evTs}${untilMark}${esc(JSON.stringify(inner))}`;
+    state.viewport.appendChild(row);
   }
 }
 
 async function toggleRecEvents(ref) {
   if (expandedRecs.has(ref)) {
     expandedRecs.delete(ref);
+    if (predicatePainter && predicatePainter.ref === ref) ppClose();
+    // Clean up virtual scroller
+    const vs = evVirtualState.get(ref);
+    if (vs) {
+      const container = document.getElementById(`rev-${ref}`);
+      if (container) container.removeEventListener('scroll', vs.handler);
+      evVirtualState.delete(ref);
+    }
   } else {
     expandedRecs.add(ref);
     const rec = recordings.find(r => r.reference === ref);
-    if (rec && (!rec.events || rec.status === 'running')) {
+    const stale = rec && (!rec.events
+      || (rec.status === 'running' && (!rec._eventsFetchedAt || Date.now() - rec._eventsFetchedAt > POLL_INTERVAL)));
+    if (stale) {
       try {
         const detail = await fetchJson(`/recordings/${rec.reference}?timeout=0`);
         Object.assign(rec, detail);
+        rec._eventsFetchedAt = Date.now();
       } catch {}
     }
   }
@@ -594,7 +869,7 @@ async function toggleRecEvents(ref) {
   const tb = document.getElementById(`evt-${ref}`);
   if (rv) rv.classList.toggle('open', open);
   if (tb) tb.classList.toggle('open', open);
-  if (open) renderRecordings();
+  if (open) renderEventsForRec(ref);
 }
 
 function copyEventsJSON(ref) {
@@ -602,14 +877,19 @@ function copyEventsJSON(ref) {
   if (!rec || !rec.events || !rec.events.length) return;
   const payloads = rec.events.map(e => e.payload || e);
   const text = JSON.stringify(payloads, null, 2);
-  navigator.clipboard.writeText(text).then(() => flashEvtBtn(ref, 'copy JSON'));
+  copyToClipboard(text).then(ok => { if (ok) flashEvtBtn(ref, 'copy JSON'); });
 }
 
 function copyEventsText(ref) {
-  const rv = document.getElementById(`rev-${ref}`);
-  if (!rv) return;
-  const lines = Array.from(rv.querySelectorAll('.rec-ev-row')).map(r => r.textContent);
-  navigator.clipboard.writeText(lines.join('\n')).then(() => flashEvtBtn(ref, 'copy text'));
+  const rec = recordings.find(r => r.reference === ref);
+  if (!rec || !rec.events || !rec.events.length) return;
+  const lines = rec.events.map(ev => {
+    const ts = ev.recorded_at_ms ? fmtMs(ev.recorded_at_ms) + ' ' : '';
+    const until = ev.until_predicate != null ? `[until:${ev.until_predicate}] ` : '';
+    const inner = ev.payload || ev;
+    return ts + until + JSON.stringify(inner);
+  });
+  copyToClipboard(lines.join('\n')).then(ok => { if (ok) flashEvtBtn(ref, 'copy text'); });
 }
 
 
@@ -617,6 +897,244 @@ function flashEvtBtn(ref, label) {
   const tb = document.getElementById(`evt-${ref}`);
   if (!tb) return;
   const btn = Array.from(tb.querySelectorAll('.ev-tool-btn')).find(b => b.textContent === label);
+  if (!btn) return;
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 1200);
+}
+
+// ---- Predicate Painter ----
+
+function ppDetectType(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+}
+function ppEscJmes(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function ppFormatLit(v, t) {
+  if (t === 'string') return "'" + ppEscJmes(v) + "'";
+  if (t === 'null') return '`null`';
+  return '`' + v + '`';
+}
+function ppOps(t) {
+  if (t === 'string') return ['==', '!=', 'contains()', 'starts_with()'];
+  if (t === 'number') return ['==', '!=', '<', '>', '<=', '>='];
+  if (t === 'null') return ['!=', '=='];
+  return ['==', '!='];
+}
+function ppFormatClause(c) {
+  if (c.presence) return "contains(keys(" + (c.parent === '@' ? '@' : c.parent) + "), '" + ppEscJmes(c.key) + "')";
+  const lit = ppFormatLit(c.value, c.type);
+  if (c.op === 'contains()') return 'contains(' + c.path + ', ' + lit + ')';
+  if (c.op === 'starts_with()') return 'starts_with(' + c.path + ', ' + lit + ')';
+  return c.path + ' ' + c.op + ' ' + lit;
+}
+function ppAssemble() {
+  if (!predicatePainter || !predicatePainter.clauses.size) return '';
+  const parts = [];
+  for (const c of predicatePainter.clauses.values()) parts.push(ppFormatClause(c));
+  return parts.join(' ' + predicatePainter.combiner + ' ');
+}
+function ppUpdateExpr() {
+  if (!predicatePainter) return;
+  const el = predicatePainter.panel.querySelector('.pp-expr');
+  if (!el) return;
+  const expr = ppAssemble();
+  if (!expr) { el.textContent = 'click values to build predicate'; el.className = 'pp-expr empty'; return; }
+  el.textContent = expr;
+  el.className = lintExpr(expr) ? 'pp-expr error' : 'pp-expr';
+}
+
+function ppValSpan(val, path) {
+  const t = ppDetectType(val);
+  let d, cls;
+  if (t === 'string')       { d = '&quot;' + esc(val) + '&quot;'; cls = 'pp-str'; }
+  else if (t === 'number')  { d = String(val); cls = 'pp-num'; }
+  else if (t === 'boolean') { d = String(val); cls = 'pp-bool'; }
+  else if (t === 'null')    { d = 'null'; cls = 'pp-null'; }
+  else return esc(JSON.stringify(val));
+  if (predicatePainter) predicatePainter.rawValues.set(path, val);
+  return '<span class="' + cls + ' pp-val" data-path="' + esc(path) + '" data-type="' + t + '" onclick="ppClickVal(this)">' + d + '</span>';
+}
+
+function ppTreeHtml(obj) {
+  const t = ppDetectType(obj);
+  if (t !== 'object' && t !== 'array') return '<div class="pp-line">' + ppValSpan(obj, '') + '</div>';
+  const br = t === 'object' ? ['{', '}'] : ['[', ']'];
+  const p = ['<div class="pp-line">' + br[0] + '</div>'];
+  ppTreeWalk(p, obj, '', 1);
+  p.push('<div class="pp-line">' + br[1] + '</div>');
+  return p.join('');
+}
+function ppTreeWalk(out, val, path, depth) {
+  const pad = '\u00a0\u00a0'.repeat(depth);
+  const t = ppDetectType(val);
+  if (t === 'object' && val !== null) {
+    const keys = Object.keys(val);
+    keys.forEach((k, i) => {
+      const v = val[k], vp = path ? path + '.' + k : k, vt = ppDetectType(v);
+      const cm = i < keys.length - 1 ? ',' : '';
+      const kh = '<span class="pp-objkey" data-key="' + esc(k) + '" data-pp="' + esc(path || '@') + '" onclick="ppToggleKey(this)">&quot;' + esc(k) + '&quot;</span>';
+      if ((vt === 'object' && v && Object.keys(v).length) || (vt === 'array' && v.length)) {
+        const b = vt === 'object' ? ['{', '}'] : ['[', ']'];
+        out.push('<div class="pp-line">' + pad + kh + ': <span class="pp-collapse" data-target="' + esc(vp) + '" onclick="ppToggleCollapse(this)">\u25BE</span> ' + b[0] + '</div>');
+        out.push('<div class="pp-group" data-group="' + esc(vp) + '">');
+        ppTreeWalk(out, v, vp, depth + 1);
+        out.push('</div>');
+        out.push('<div class="pp-line">' + pad + b[1] + cm + '</div>');
+      } else if (vt === 'object' || vt === 'array') {
+        out.push('<div class="pp-line">' + pad + kh + ': ' + (vt === 'object' ? '{}' : '[]') + cm + '</div>');
+      } else {
+        out.push('<div class="pp-line">' + pad + kh + ': ' + ppValSpan(v, vp) + cm + '</div>');
+      }
+    });
+  } else if (t === 'array') {
+    val.forEach((item, i) => {
+      const ip = path + '[' + i + ']', it = ppDetectType(item);
+      const cm = i < val.length - 1 ? ',' : '';
+      if ((it === 'object' && item && Object.keys(item).length) || (it === 'array' && item.length)) {
+        const b = it === 'object' ? ['{', '}'] : ['[', ']'];
+        out.push('<div class="pp-line">' + pad + '<span class="pp-collapse" data-target="' + esc(ip) + '" onclick="ppToggleCollapse(this)">\u25BE</span> ' + b[0] + '</div>');
+        out.push('<div class="pp-group" data-group="' + esc(ip) + '">');
+        ppTreeWalk(out, item, ip, depth + 1);
+        out.push('</div>');
+        out.push('<div class="pp-line">' + pad + b[1] + cm + '</div>');
+      } else if (it === 'object' || it === 'array') {
+        out.push('<div class="pp-line">' + pad + (it === 'object' ? '{}' : '[]') + cm + '</div>');
+      } else {
+        out.push('<div class="pp-line">' + pad + ppValSpan(item, ip) + cm + '</div>');
+      }
+    });
+  }
+}
+
+function ppClickVal(span) {
+  if (!predicatePainter) return;
+  const path = span.dataset.path, type = span.dataset.type;
+  if (predicatePainter.clauses.has(path)) {
+    predicatePainter.clauses.delete(path);
+    span.classList.remove('painted');
+    const bar = predicatePainter.panel.querySelector('.pp-opbar[data-for="' + CSS.escape(path) + '"]');
+    if (bar) bar.remove();
+  } else {
+    const val = predicatePainter.rawValues.get(path);
+    const op = type === 'null' ? '!=' : '==';
+    predicatePainter.clauses.set(path, { path, op, value: val, type });
+    span.classList.add('painted');
+    ppInsertOpbar(span, path, type, op);
+  }
+  ppUpdateExpr();
+}
+
+function ppToggleKey(span) {
+  if (!predicatePainter) return;
+  const key = span.dataset.key, parent = span.dataset.pp;
+  const id = '__k:' + parent + '.' + key;
+  if (predicatePainter.clauses.has(id)) {
+    predicatePainter.clauses.delete(id);
+    span.classList.remove('painted');
+  } else {
+    predicatePainter.clauses.set(id, { presence: true, key, parent });
+    span.classList.add('painted');
+  }
+  ppUpdateExpr();
+}
+
+function ppInsertOpbar(span, path, type, activeOp) {
+  const ops = ppOps(type);
+  const bar = document.createElement('span');
+  bar.className = 'pp-opbar';
+  bar.dataset.for = path;
+  ops.forEach(function(o) {
+    const btn = document.createElement('button');
+    btn.className = 'pp-op' + (o === activeOp ? ' active' : '');
+    btn.textContent = o;
+    btn.onclick = function(e) { e.stopPropagation(); ppSetOp(path, o); };
+    bar.appendChild(btn);
+  });
+  span.after(bar);
+}
+
+function ppSetOp(path, op) {
+  if (!predicatePainter) return;
+  const c = predicatePainter.clauses.get(path);
+  if (!c) return;
+  c.op = op;
+  const bar = predicatePainter.panel.querySelector('.pp-opbar[data-for="' + CSS.escape(path) + '"]');
+  if (bar) bar.querySelectorAll('.pp-op').forEach(b => b.classList.toggle('active', b.textContent === op));
+  ppUpdateExpr();
+}
+
+function ppToggleCollapse(span) {
+  const target = span.dataset.target;
+  const tree = span.closest('.pp-tree');
+  if (!tree) return;
+  const group = tree.querySelector('.pp-group[data-group="' + CSS.escape(target) + '"]');
+  if (!group) return;
+  span.textContent = group.classList.toggle('pp-hidden') ? '\u25B8' : '\u25BE';
+}
+
+function ppOpen(ref, idx) {
+  ppClose();
+  const rec = recordings.find(r => r.reference === ref);
+  if (!rec || !rec.events || !rec.events[idx]) return;
+  const payload = rec.events[idx].payload || rec.events[idx];
+  predicatePainter = { ref, eventIndex: idx, clauses: new Map(), combiner: '&&', panel: null, rawValues: new Map() };
+  const panel = document.createElement('div');
+  panel.className = 'pp-panel';
+  const treeHtml = ppTreeHtml(payload);
+  panel.innerHTML =
+    '<div class="pp-header"><span>predicate painter \u2014 event #' + idx + '</span>' +
+    '<button class="pp-close" onclick="ppClose()" title="Close">\u00d7</button></div>' +
+    '<div class="pp-tree">' + treeHtml + '</div>' +
+    '<div class="pp-bar"><div><button class="pp-combiner" onclick="ppToggleCombiner()">&amp;&amp;</button> ' +
+    '<span class="pp-expr empty">click values to build predicate</span></div>' +
+    '<div class="pp-actions"><button class="pp-act" onclick="ppCopy()">copy</button>' +
+    '<button class="pp-act" onclick="ppToMatching()">\u2192 matching</button>' +
+    '<button class="pp-act" onclick="ppToUntil()">\u2192 until</button></div></div>';
+  predicatePainter.panel = panel;
+  const card = recNodes.get(ref);
+  if (!card) { predicatePainter = null; return; }
+  const tb = card.querySelector('.ev-toolbar');
+  if (tb) tb.after(panel); else card.appendChild(panel);
+}
+
+function ppClose() {
+  if (!predicatePainter) return;
+  if (predicatePainter.panel) predicatePainter.panel.remove();
+  predicatePainter = null;
+}
+
+function ppCopy() {
+  const expr = ppAssemble();
+  if (!expr) return;
+  copyToClipboard(expr).then(ok => { if (ok) ppFlashAct('copy'); });
+}
+function ppToMatching() {
+  const expr = ppAssemble();
+  if (!expr) return;
+  const input = document.getElementById('f-matching');
+  if (input) input.value = expr;
+  ppFlashAct('\u2192 matching');
+}
+function ppToUntil() {
+  const expr = ppAssemble();
+  if (!expr) return;
+  if (untilType === 'none') setUntilType('order');
+  addPredicate();
+  const inputs = document.querySelectorAll('#predsList .pred-row input');
+  if (inputs.length) inputs[inputs.length - 1].value = expr;
+  ppFlashAct('\u2192 until');
+}
+function ppToggleCombiner() {
+  if (!predicatePainter) return;
+  predicatePainter.combiner = predicatePainter.combiner === '&&' ? '||' : '&&';
+  const btn = predicatePainter.panel.querySelector('.pp-combiner');
+  if (btn) btn.textContent = predicatePainter.combiner;
+  ppUpdateExpr();
+}
+function ppFlashAct(label) {
+  if (!predicatePainter) return;
+  const btn = Array.from(predicatePainter.panel.querySelectorAll('.pp-act')).find(b => b.textContent === label);
   if (!btn) return;
   btn.classList.add('flash');
   setTimeout(() => btn.classList.remove('flash'), 1200);
@@ -634,6 +1152,9 @@ async function deleteRec(ref) {
   try {
     await fetch(`${BASE}/recordings/${ref}`, { method: 'DELETE' });
     recordings = recordings.filter(r => r.reference !== ref);
+    expandedRecs.delete(ref);
+    openCurls.delete(ref);
+    if (predicatePainter && predicatePainter.ref === ref) ppClose();
     renderRecordings();
   } catch {}
 }
@@ -729,9 +1250,33 @@ function setFeedback(msg, ok) {
   el.className = 'form-feedback ' + (ok ? 'ok' : 'err');
 }
 
+function lintExpr(expr) {
+  if (!expr.trim()) return 'Expression is empty';
+  const singles = (expr.match(/'/g) || []).length;
+  if (singles % 2 !== 0) return 'Unbalanced single quotes';
+  const doubles = (expr.match(/"/g) || []).length;
+  if (doubles % 2 !== 0) return 'Unbalanced double quotes';
+  const backticks = (expr.match(/`/g) || []).length;
+  if (backticks % 2 !== 0) return 'Unbalanced backticks';
+  let depth = 0;
+  for (const c of expr) {
+    if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    if (depth < 0) return 'Unmatched closing bracket';
+  }
+  if (depth !== 0) return 'Unmatched opening bracket';
+  return '';
+}
+
+function flashError(input) {
+  input.classList.add('error');
+  setTimeout(() => input.classList.remove('error'), 2000);
+}
+
 async function createRecording() {
   const desc = document.getElementById('f-desc').value.trim();
-  const matching = document.getElementById('f-matching').value.trim();
+  const matchingInput = document.getElementById('f-matching');
+  const matching = matchingInput.value.trim();
 
   // Flush any typed-but-not-committed chip input
   const chipInput = document.getElementById('chipInput');
@@ -742,6 +1287,12 @@ async function createRecording() {
     renderChips();
   }
 
+  // Client-side validation
+  if (matching) {
+    const err = lintExpr(matching);
+    if (err) { setFeedback('matching: ' + err, false); flashError(matchingInput); return; }
+  }
+
   const body = {};
   if (desc) body.description = desc;
   if (sourceChips.length) body.sources = sourceChips;
@@ -749,6 +1300,11 @@ async function createRecording() {
   if (untilType !== 'none') {
     const preds = getPredicates();
     if (!preds.length) { setFeedback('Add at least one predicate', false); return; }
+    const predInputs = document.querySelectorAll('#predsList .pred-row input');
+    for (let i = 0; i < preds.length; i++) {
+      const err = lintExpr(preds[i]);
+      if (err) { setFeedback(`predicate ${i + 1}: ${err}`, false); flashError(predInputs[i]); return; }
+    }
     body.until = { type: untilType, predicates: preds };
   }
 
@@ -782,30 +1338,50 @@ function toggleCurl(ref) {
   openCurls[opening ? 'add' : 'delete'](ref);
   bar.classList.toggle('open', opening);
   if (opening) {
-    navigator.clipboard.writeText(bar.textContent).then(() => {
+    copyToClipboard(bar.textContent).then(ok => {
+      if (!ok) return;
       btn.textContent = 'copied!';
       btn.classList.add('copied');
       setTimeout(() => { btn.textContent = 'curl'; btn.classList.remove('copied'); }, 1800);
-    }).catch(() => {});
+    });
   }
 }
 
 function copyCurl(ref, cmd) {
-  navigator.clipboard.writeText(cmd).then(() => {
+  copyToClipboard(cmd).then(ok => {
+    if (!ok) return;
     const btn = document.getElementById(`copyiconbtn-${ref}`);
     if (!btn) return;
     btn.classList.add('copied');
     setTimeout(() => btn.classList.remove('copied'), 1500);
-  }).catch(() => {});
+  });
 }
 
 // ---- Main loop ----
+let pollTimer = null;
+
 async function mainLoop() {
-  await pollAll();
+  return await pollAll();
 }
 
-mainLoop();
-setInterval(mainLoop, POLL_INTERVAL);
+async function scheduleNext() {
+  const ok = await mainLoop();
+  const delay = ok
+    ? POLL_INTERVAL
+    : Math.min(POLL_INTERVAL * Math.pow(2, consecutiveFailures), 30000);
+  pollTimer = setTimeout(scheduleNext, delay);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  } else if (!pollTimer) {
+    scheduleNext();
+  }
+});
+
+scheduleNext();
 </script>
 </body>
 </html>

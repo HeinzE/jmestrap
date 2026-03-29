@@ -30,19 +30,21 @@ stress_tests.rs  Throughput and sharding stress tests
 ## Runtime Data Flow
 
 ```
-  EventIngress (MQTT / SSE / REST inject)
-         │
-  spawn_ingress_processor()
-         │
-  AppState.process_event()
-         │
-  ┌──────┴──────┐
-  │             │
-source shard  global shard
-(per-source   (recordings with
- lock)         sources=[])
-  │             │
-Recordings   Recordings
+  EventIngress (MQTT / SSE)         REST inject (POST /events/{source})
+         │                                     │
+  spawn_ingress_processor()                    │
+         │                                     │
+         └──────────────┬──────────────────────┘
+                        │
+               AppState.process_event()
+                        │
+                ┌───────┴───────┐
+                │               │
+          source shard     global shard
+          (per-source      (recordings with
+           lock)            sources=[])
+                │               │
+          Recordings       Recordings
 ```
 
 Events from all transports merge by source name. If MQTT and SSE both
@@ -62,10 +64,12 @@ AppState
 ├── global: Arc<RwLock<Recordings>>     ← sources=[] recordings
 ├── counter: AtomicU64                  ← lock-free ref allocator
 ├── ref_index: RwLock<HashMap<ref, sources>>
-└── source_stats: std::sync::RwLock<HashMap<String, Mutex<SourceStatsInner>>>
-                                        ← per-source counters
-                                          (outer RwLock read-locked on updates,
-                                           inner Mutex per-source)
+├── source_stats: std::sync::RwLock<HashMap<String, Mutex<SourceStatsInner>>>
+│                                   ← per-source counters
+│                                     (outer RwLock read-locked on updates,
+│                                      inner Mutex per-source)
+└── ttl_ms: u64                     ← recording TTL (set via --ttl)
+                                      spawn_reaper() scans every 60s
 ```
 
 | Recording sources | Placement | Events checked |
@@ -79,6 +83,17 @@ one lock, no contention with other sources.
 
 Events without a matching recording are silently dropped. No buffering or
 replay. Recordings must be started before events of interest arrive.
+
+### Recording Reaper
+
+`spawn_reaper()` launches a background task that runs every 60 seconds:
+
+1. Scans all shards (per-source and global) for expired recordings.
+2. **Completed/Stopped** recordings expire when `now - finished_at_ms >= ttl_ms`.
+3. **Running** recordings expire when `now - last_accessed_at >= ttl_ms`
+   (idle timeout). Fetching a recording resets its idle clock.
+4. Expired recordings are removed via `delete_recording()`.
+5. Empty per-source shards are pruned to avoid unbounded shard map growth.
 
 ### Ingress Identity Models
 
@@ -169,6 +184,4 @@ cargo test --locked --test blackbox_binary
 
 ## Future Direction
 
-- **Recording TTL / auto-cleanup** — bounded retention with a background
-  reaper to avoid stale recording buildup.
 - **SSE reconnect** — if SSE sees active use, add reconnect/resume behavior.

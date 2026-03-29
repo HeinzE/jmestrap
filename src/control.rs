@@ -7,6 +7,7 @@ use crate::core::{AppState, RecordedEvent, RecordingInfo, RecordingRef, Recordin
 use crate::predicates::{Jmes, JmesUntil, UntilSpec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 // =============================================================================
@@ -57,7 +58,7 @@ pub struct EventsResponse {
     pub sources: Vec<String>,
     pub status: RecordingStatus,
     pub event_count: usize,
-    pub events: Vec<RecordedEvent>,
+    pub events: Vec<Arc<RecordedEvent>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matching_expr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,32 +175,25 @@ pub trait RecordingControl {
 impl RecordingControl for AppState {
     async fn start(&self, req: StartRequest) -> Result<StartResponse, ControlError> {
         // Compile matching predicate
-        let matching = match req.matching {
-            Some(expr) => Some(
-                Jmes::new(&expr)
-                    .map_err(|e| {
-                        ControlError::invalid_predicate(format!(
-                            "Invalid matching predicate: {}",
-                            e
-                        ))
-                    })?,
-            ),
-            None => None,
-        };
+        let matching = req
+            .matching
+            .as_ref()
+            .map(|expr| {
+                Jmes::new(expr).map_err(|e| {
+                    ControlError::invalid_predicate(format!("Invalid matching predicate: {}", e))
+                })
+            })
+            .transpose()?;
 
         // Compile until condition
-        let until = match req.until {
-            Some(spec) => Some(
-                JmesUntil::from_spec(spec)
-                    .map_err(|e| {
-                        ControlError::invalid_predicate(format!(
-                            "Invalid until predicate: {}",
-                            e
-                        ))
-                    })?,
-            ),
-            None => None,
-        };
+        let until = req
+            .until
+            .map(|spec| {
+                JmesUntil::from_spec(spec).map_err(|e| {
+                    ControlError::invalid_predicate(format!("Invalid until predicate: {}", e))
+                })
+            })
+            .transpose()?;
 
         let reference = self
             .start_recording(req.description, req.sources, matching, until)
@@ -225,15 +219,14 @@ impl RecordingControl for AppState {
             .await
             .ok_or_else(|| ControlError::not_found(req.reference))?;
 
-        let should_wait =
-            snap.info.status == RecordingStatus::Running && req.timeout.is_some() && req.timeout.unwrap() > 0.0;
+        let timeout_secs = req.timeout.filter(|t| t.is_finite() && *t > 0.0);
 
-        if !should_wait {
+        if snap.info.status != RecordingStatus::Running || timeout_secs.is_none() {
             return Ok(events_response(snap));
         }
 
         // Wait for completion or timeout
-        let duration = Duration::from_secs_f64(req.timeout.unwrap());
+        let duration = Duration::from_secs_f64(timeout_secs.unwrap());
         let _ = tokio::time::timeout(duration, snap.notifier.notified()).await;
 
         // Re-read after wait (recording may have finished, or timed out)
@@ -642,6 +635,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_events_invalid_timeout_returns_immediately() {
+        let state = AppState::new();
+        let r = state
+            .start(StartRequest {
+                description: String::new(),
+                sources: vec![],
+                matching: None,
+                until: Some(UntilSpec::Order {
+                    predicates: vec!["event == 'never'".into()],
+                }),
+            })
+            .await
+            .unwrap();
+
+        // NaN, Infinity, and negative all behave like no timeout (immediate return)
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, 0.0] {
+            let resp = state
+                .get_events(GetEventsRequest {
+                    reference: r.reference,
+                    timeout: Some(bad),
+                })
+                .await
+                .unwrap();
+            assert_eq!(resp.status, RecordingStatus::Running);
+        }
+    }
+
+    #[tokio::test]
     async fn test_get_events_nonexistent() {
         let state = AppState::new();
         let err = state
@@ -810,6 +831,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_long_poll_wakes_on_delete() {
+        let state = Arc::new(AppState::new());
+
+        let r = state
+            .start(StartRequest {
+                description: String::new(),
+                sources: vec!["dut1".into()],
+                matching: None,
+                until: Some(UntilSpec::Order {
+                    predicates: vec!["event == 'never'".into()],
+                }),
+            })
+            .await
+            .unwrap();
+
+        let state2 = Arc::clone(&state);
+        let ref_id = r.reference;
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            state2.delete(ref_id).await.unwrap();
+        });
+
+        // Long-poll should wake up promptly after delete, not wait 5s
+        let err = state
+            .get_events(GetEventsRequest {
+                reference: r.reference,
+                timeout: Some(5.0),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(err.message.contains("not found"));
+    }
+
+    #[tokio::test]
     async fn test_stopped_recording_shows_correct_state() {
         let state = AppState::new();
 
@@ -860,7 +916,7 @@ mod tests {
             .start(StartRequest {
                 description: String::new(),
                 sources: vec![],
-                matching: Some("@".into()),
+                matching: Some("`true`".into()),
                 until: None,
             })
             .await
@@ -900,7 +956,7 @@ mod tests {
             .start(StartRequest {
                 description: String::new(),
                 sources: vec!["target".into()],
-                matching: Some("@".into()),
+                matching: Some("`true`".into()),
                 until: None,
             })
             .await
@@ -978,6 +1034,60 @@ mod tests {
 
         assert_eq!(resp.status, RecordingStatus::Completed);
         assert_eq!(resp.events.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_stop_completed_recording_preserves_status() {
+        use crate::ingress::Event;
+
+        let state = AppState::new();
+
+        // Start recording with until condition
+        let r = state
+            .start(StartRequest {
+                description: "completion test".into(),
+                sources: vec![],
+                matching: None,
+                until: Some(UntilSpec::Order {
+                    predicates: vec!["event == 'done'".into()],
+                }),
+            })
+            .await
+            .unwrap();
+
+        // Complete the recording via the until predicate
+        state
+            .process_event(&Event {
+                source: "s".into(),
+                payload: serde_json::json!({"event": "done"}),
+            })
+            .await;
+
+        // Verify it completed
+        let resp = state
+            .get_events(GetEventsRequest {
+                reference: r.reference,
+                timeout: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(resp.status, RecordingStatus::Completed);
+        let original_finished_at = resp.finished_at_ms.unwrap();
+
+        // Now stop the already-completed recording
+        let stop_resp = state.stop(r.reference).await.unwrap();
+        assert_eq!(stop_resp.event_count, 1);
+
+        // Status should still be Completed, not Stopped
+        let resp = state
+            .get_events(GetEventsRequest {
+                reference: r.reference,
+                timeout: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(resp.status, RecordingStatus::Completed);
+        assert_eq!(resp.finished_at_ms.unwrap(), original_finished_at);
     }
 
     #[tokio::test]
