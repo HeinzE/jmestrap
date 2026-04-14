@@ -30,19 +30,21 @@ stress_tests.rs  Throughput and sharding stress tests
 ## Runtime Data Flow
 
 ```
-  EventIngress (MQTT / SSE / REST inject)
-         │
-  spawn_ingress_processor()
-         │
-  AppState.process_event()
-         │
-  ┌──────┴──────┐
-  │             │
-source shard  global shard
-(per-source   (recordings with
- lock)         sources=[])
-  │             │
-Recordings   Recordings
+  EventIngress (MQTT / SSE)         REST inject (POST /events/{source})
+         │                                     │
+  spawn_ingress_processor()                    │
+         │                                     │
+         └──────────────┬──────────────────────┘
+                        │
+               AppState.process_event()
+                        │
+                ┌───────┴───────┐
+                │               │
+          source shard     global shard
+          (per-source      (recordings with
+           lock)            sources=[])
+                │               │
+          Recordings       Recordings
 ```
 
 Events from all transports merge by source name. If MQTT and SSE both
@@ -62,10 +64,12 @@ AppState
 ├── global: Arc<RwLock<Recordings>>     ← sources=[] recordings
 ├── counter: AtomicU64                  ← lock-free ref allocator
 ├── ref_index: RwLock<HashMap<ref, sources>>
-└── source_stats: std::sync::RwLock<HashMap<String, Mutex<SourceStatsInner>>>
-                                        ← per-source counters
-                                          (outer RwLock read-locked on updates,
-                                           inner Mutex per-source)
+├── source_stats: std::sync::RwLock<HashMap<String, Mutex<SourceStatsInner>>>
+│                                   ← per-source counters
+│                                     (outer RwLock read-locked on updates,
+│                                      inner Mutex per-source)
+└── ttl_ms: u64                     ← recording TTL (set via --ttl)
+                                      spawn_reaper() scans every 60s
 ```
 
 | Recording sources | Placement | Events checked |
@@ -79,6 +83,17 @@ one lock, no contention with other sources.
 
 Events without a matching recording are silently dropped. No buffering or
 replay. Recordings must be started before events of interest arrive.
+
+### Recording Reaper
+
+`spawn_reaper()` launches a background task that runs every 60 seconds:
+
+1. Scans all shards (per-source and global) for expired recordings.
+2. **Completed/Stopped** recordings expire when `now - finished_at_ms >= ttl_ms`.
+3. **Running** recordings expire when `now - last_accessed_at >= ttl_ms`
+   (idle timeout). Fetching a recording resets its idle clock.
+4. Expired recordings are removed via `delete_recording()`.
+5. Empty per-source shards are pruned to avoid unbounded shard map growth.
 
 ### Ingress Identity Models
 
@@ -121,16 +136,33 @@ direct connections — intermediaries may impose idle timeouts that cut the
 connection. For proxied deployments, clients should loop with short timeouts
 (the `demo.html` pattern).
 
+## Known Limitations
+
+**Reference reset on restart.** Recording references (`counter`) start at 1
+on every server start. Pipeline scripts that persist refs across restarts may
+404 or collide with a different recording. Interactive use is unaffected.
+Mitigation path: epoch-prefixed refs (additive, non-breaking).
+
+**No pagination on events.** `GET /recordings/{ref}` returns all events in one
+response. Long-running recordings on busy sources produce large payloads.
+Mitigation path: `?offset=N&limit=M` query params (additive, non-breaking).
+
+**Unbounded recording growth.** A recording with no `until` on a high-throughput
+source accumulates events in memory indefinitely. The TTL reaper only catches
+idle recordings (no recent client fetch). An actively-polled recording without
+`until` grows until stopped or deleted.
+Mitigation path: optional `max_events` field on start (additive, non-breaking).
+
 ## Testing Strategy
 
 ### Layer Ownership
 
 | Layer | Primary owner of | Does not own |
 |-------|-----------------|--------------|
-| `core.rs` tests | Event filtering (matching + until), recording timestamps, source stats, shard-level fanout | Control API, HTTP mapping |
+| `core.rs` tests | Event filtering (filter predicate + completion pattern), recording timestamps, source stats, shard-level fanout | Control API, HTTP mapping |
 | `control.rs` tests | Recording lifecycle ops (start/stop/delete), long-poll logic, predicate validation errors, multi-source behavior | HTTP status codes, binary startup |
 | `rest.rs` route tests | HTTP status mapping (400/404/422), request/response JSON shape, error envelope format | Business logic, predicate semantics |
-| `predicates.rs` tests | JMESPath compilation, matching, until progression | Recording integration |
+| `predicates.rs` tests | JMESPath compilation, filter predicate, completion pattern progression | Recording integration |
 | Ingress tests (`sse_ingress.rs`, `ingress.rs`) | Wire protocol parsing, source extraction, transport integration | Recording semantics |
 | `stress_tests.rs` | Throughput under load, multi-core scaling | Correctness (covered by other layers) |
 | Black-box (`tests/blackbox_binary.rs`) | Binary startup, real TCP/HTTP round-trip | Broad matrix/fuzz |
@@ -169,6 +201,4 @@ cargo test --locked --test blackbox_binary
 
 ## Future Direction
 
-- **Recording TTL / auto-cleanup** — bounded retention with a background
-  reaper to avoid stale recording buildup.
 - **SSE reconnect** — if SSE sees active use, add reconnect/resume behavior.

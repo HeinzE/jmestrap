@@ -9,7 +9,7 @@ use crate::ingress::Event;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{Html, IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
@@ -129,12 +129,24 @@ async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
 }
 
+/// GET / — embedded dashboard (dashboard.html compiled in)
+async fn dashboard() -> Html<&'static str> {
+    Html(include_str!("../dashboard.html"))
+}
+
+/// GET /ui — permanent redirect to / (kept for historical bookmarks)
+async fn dashboard_ui_redirect() -> Redirect {
+    Redirect::permanent("/")
+}
+
 // =============================================================================
 // Router
 // =============================================================================
 
 pub fn router(state: AppStateRef) -> Router {
     let r = Router::new()
+        .route("/", get(dashboard))
+        .route("/ui", get(dashboard_ui_redirect))
         .route("/ping", get(ping))
         .route("/recordings", post(create_recording).get(list_recordings))
         .route(
@@ -200,6 +212,34 @@ mod tests {
         let (status, body) = request_json(&app, req).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_dashboard_root_route() {
+        let app = app();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = request_raw(&app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("JMESTrap"), "dashboard HTML not served");
+    }
+
+    #[tokio::test]
+    async fn test_dashboard_ui_redirects_to_root() {
+        let app = app();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/ui")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(resp.headers()["location"], "/");
     }
 
     #[tokio::test]

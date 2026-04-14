@@ -48,6 +48,8 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -104,7 +106,7 @@ impl MqttIngress {
 
         // Channel capacity: broker-side buffering handles bursts;
         // this is the rumqttc internal event queue depth.
-        let (client, mut eventloop) = AsyncClient::new(opts, 256);
+        let (client, mut eventloop) = AsyncClient::new(opts, 1024);
 
         for topic in &config.subscribe {
             client.subscribe(topic, QoS::AtMostOnce).await?;
@@ -115,8 +117,10 @@ impl MqttIngress {
             config.host, config.port, config.subscribe
         );
 
-        let (tx, rx) = mpsc::channel(1024);
+        let (tx, rx) = mpsc::channel(4096);
         let source_seg = config.source_segment;
+        let dropped = Arc::new(AtomicU64::new(0));
+        let dropped_ref = Arc::clone(&dropped);
 
         tokio::spawn(async move {
             loop {
@@ -127,8 +131,17 @@ impl MqttIngress {
                             &publish.payload,
                             source_seg,
                         ) {
-                            if tx.send(event).await.is_err() {
-                                break; // Receiver dropped
+                            // Non-blocking send: keep draining the broker even
+                            // under backpressure.  Drops are logged, not silent.
+                            match tx.try_send(event) {
+                                Ok(()) => {}
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    let n = dropped_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if n.is_power_of_two() || n % 1000 == 0 {
+                                        eprintln!("[mqtt] Channel full, {} events dropped total", n);
+                                    }
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => break,
                             }
                         }
                     }
@@ -142,7 +155,8 @@ impl MqttIngress {
                     }
                 }
             }
-            eprintln!("[mqtt] Event loop exited");
+            #[allow(unreachable_code)]
+            { eprintln!("[mqtt] Event loop exited"); }
         });
 
         Ok(Self { rx, _client: client })

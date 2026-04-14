@@ -1,0 +1,38 @@
+[Unit]
+Description=JMESTrap event recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=jmestrap
+Group=jmestrap
+ExecStart=/usr/local/bin/jmestrap \
+    --bind 0.0.0.0 \
+    --port 9000 \
+    --ttl 3600
+# For MQTT ingestion on the rig, append something like:
+# --mqtt 10.0.0.5 --mqtt-sub "dut/+/events" --mqtt-source-segment 1
+
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s
+
+# Logs go to the journal; view with: journalctl -u jmestrap -f
+StandardOutput=journal
+StandardError=journal
+
+# Light hardening — safe because JMESTrap only needs network + stdout
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

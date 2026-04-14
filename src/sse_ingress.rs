@@ -475,7 +475,7 @@ mod tests {
         let ref_id = state.start(StartRequest {
             description: String::new(),
             sources: vec!["node_4".into()],
-            matching: Some("@".into()),
+            matching: Some("`true`".into()),
             until: Some(crate::predicates::UntilSpec::Order {
                 predicates: vec!["properties.event == 'done'".into()],
             }),

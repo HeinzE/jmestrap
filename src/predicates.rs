@@ -1,7 +1,7 @@
-//! JMESPath predicate types for filtering and completion conditions
+//! JMESPath predicates and event patterns for filtering and completion
 //!
-//! - `Jmes` - single predicate for continuous matching
-//! - `JmesUntil` - completion conditions (Order, AnyOrder)
+//! - `Jmes` - single predicate — filter applied to each event
+//! - `JmesUntil` - completion patterns: sequence (Order) and conjunction (AnyOrder)
 //!
 //! Thread-safety: jmespath::Expression uses Rc internally (not Send/Sync).
 //! We solve this with a thread-local cache: expressions are compiled once
@@ -76,7 +76,7 @@ fn validate_predicate(predicate: &str) -> Result<(), String> {
 // Jmes - Single predicate for continuous matching
 // =============================================================================
 
-/// Single JMESPath predicate for filtering events to record
+/// Single JMESPath predicate — filter applied to each event individually.
 /// Thread-safe: stores expression string, compiles on each evaluation
 #[derive(Debug, Clone)]
 pub struct Jmes {
@@ -94,11 +94,7 @@ impl Jmes {
     }
 
     /// Check if an event matches this predicate.
-    /// `@` (match everything) is short-circuited without JMESPath evaluation.
     pub fn is_match(&self, event: &JsonValue) -> bool {
-        if self.expression == "@" {
-            return true;
-        }
         evaluate_predicate(&self.expression, event)
     }
 
@@ -133,12 +129,13 @@ impl JmesPredicate {
     }
 }
 
-/// Until condition variants - determines when a recording finishes
+/// Completion pattern — determines when a recording finishes.
+/// Composes predicates into an event pattern that matches across a stream.
 #[derive(Debug)]
 pub enum JmesUntil {
-    /// Predicates must match in sequence
+    /// Sequence pattern: predicates must match in order across successive events
     Order(Vec<JmesPredicate>),
-    /// All predicates must match, in any order
+    /// Conjunction pattern: all predicates must match, each consumed once, any order
     AnyOrder(Vec<JmesPredicate>),
 }
 
@@ -148,7 +145,7 @@ impl JmesUntil {
         spec.compile()
     }
 
-    /// Create an Order (sequential) until condition
+    /// Create an Order (sequence pattern) completion pattern
     pub fn order(predicates: &[&str]) -> Result<Self, String> {
         let preds = predicates
             .iter()
@@ -157,7 +154,7 @@ impl JmesUntil {
         Ok(Self::Order(preds))
     }
 
-    /// Create an AnyOrder (unordered) until condition
+    /// Create an AnyOrder (conjunction pattern) completion pattern
     pub fn any_order(predicates: &[&str]) -> Result<Self, String> {
         let preds = predicates
             .iter()
@@ -166,7 +163,7 @@ impl JmesUntil {
         Ok(Self::AnyOrder(preds))
     }
 
-    /// Try to match an event against the until condition
+    /// Try to match an event against the completion pattern
     /// Returns Some(predicate_index) if matched, None otherwise
     /// Index is 1-based
     pub fn try_match(&mut self, event: &JsonValue) -> Option<usize> {
@@ -229,7 +226,7 @@ impl JmesUntil {
 // Serialization for commands
 // =============================================================================
 
-/// Serializable representation of an until condition
+/// Serializable representation of a completion pattern
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UntilSpec {
@@ -458,5 +455,49 @@ mod tests {
         // Compile-time validation of predicates inside Until
         assert!(JmesUntil::order(&["event == 'ok'", "bad predicate [["]).is_err());
         assert!(JmesUntil::any_order(&["bad predicate [["]).is_err());
+    }
+
+    #[test]
+    fn test_jmes_true_literal_matches_everything() {
+        let m = Jmes::new("`true`").unwrap();
+
+        // Normal objects — the real use case
+        assert!(m.is_match(&json!({"event": "start"})));
+        assert!(m.is_match(&json!({"value": 42})));
+
+        // Edge cases that `@` would fail on
+        assert!(m.is_match(&json!(false)));
+        assert!(m.is_match(&json!("")));
+        assert!(m.is_match(&json!(0)));
+        assert!(m.is_match(&json!([])));
+
+        // Other values
+        assert!(m.is_match(&json!({})));
+        assert!(m.is_match(&json!(true)));
+        assert!(m.is_match(&json!("hello")));
+
+        // null is unmatchable — filter projections skip null elements
+        // before evaluating the filter expression. Irrelevant in
+        // practice: a null top-level event carries no information.
+        assert!(!m.is_match(&json!(null)));
+    }
+
+    #[test]
+    fn test_jmes_at_fails_on_falsy_values() {
+        // Documents why `@` is not a true match-all — it relies on
+        // JMESPath truthiness, which excludes these values.
+        let m = Jmes::new("@").unwrap();
+
+        // Works for typical event objects
+        assert!(m.is_match(&json!({"event": "start"})));
+
+        // 0 is truthy in JMESPath (only false/null/""/[]/{}  are falsy)
+        assert!(m.is_match(&json!(0)));
+
+        // Fails on JMESPath-falsy values
+        assert!(!m.is_match(&json!(false)));
+        assert!(!m.is_match(&json!(null)));
+        assert!(!m.is_match(&json!("")));
+        assert!(!m.is_match(&json!([])));
     }
 }
