@@ -28,6 +28,8 @@
   .event-pill.humidity { background: #27ae60; }
   .event-pill.wind { background: #636e72; }
   .event-pill.alert { background: #c0392b; }
+  .event-pill.pressure { background: #8e44ad; }
+  .event-pill.precipitation { background: #2c3e50; }
   .event-time { font-size: 0.65rem; color: rgba(255,255,255,0.5); margin-left: 4px; }
 
   /* Recordings */
@@ -79,11 +81,11 @@
         </button>
         <button onclick="startRec({sources:['station'],matching:&quot;event=='temp'&quot;,until:{type:'order',predicates:[&quot;event=='temp' && value > `30`&quot;,&quot;event=='temp' && value < `10`&quot;]}},'Temp >30 then <10')">
           <strong>Temp &gt; 30°C → &lt; 10°C</strong>
-          <span>Temp events only: finish when it drops below 10°C after going above 30°C</span>
+          <span>Temp events only: above 30 then below 10</span>
         </button>
-        <button onclick="startRec({sources:['station'],until:{type:'any_order',predicates:[&quot;event=='temp'&quot;,&quot;event=='humidity'&quot;,&quot;event=='wind'&quot;,&quot;event=='alert'&quot;]}},'Catch all weather types')">
-          <strong>Catch all weather types</strong>
-          <span>Complete when all four event types seen</span>
+        <button onclick="startRec({sources:['station'],matching:&quot;event=='wind'&quot;,until:{type:'order',predicates:[&quot;event=='wind' && gust > `25`&quot;]}},'Wind gust >25')">
+          <strong>Wind gust &gt; 25 m/s</strong>
+          <span>Wind events only: finish on strong gust</span>
         </button>
       </div>
       <div id="recordings"></div>
@@ -97,7 +99,14 @@
 <script>
 const BASE = 'http://localhost:9000';
 const MAX_EVENTS = 50;
-const ALERT_MSGS = ['High temperature warning','Storm approaching','Sensor malfunction','Low visibility'];
+const ALERTS = [
+  {message:'High temperature warning', meta:{threshold:30,  actual:()=>rand(31,38),   duration_min:()=>rand(5,60)}},
+  {message:'Storm approaching',        meta:{threshold:20,  actual:()=>rand(22,35),   duration_min:()=>rand(10,120)}},
+  {message:'Heavy rain',               meta:{threshold:10,  actual:()=>rand(12,25),   duration_min:()=>rand(5,45)}},
+  {message:'Low visibility',           meta:{threshold:1000,actual:()=>rand(200,900), duration_min:()=>rand(15,90)}},
+  {message:'Frost warning',            meta:{threshold:0,   actual:()=>rand(-5,-1),   duration_min:()=>rand(30,180)}},
+  {message:'Sensor malfunction',       meta:{threshold:null,error_code:()=>rand(100,999)}},
+];
 
 // --- Helpers ---
 function ts() { return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
@@ -132,17 +141,31 @@ checkConnection();
 
 // --- Event injection ---
 function makeEvent() {
-  if (Math.random() < 0.05) {
-    return { event: 'alert', level: pick(['warning','critical']), message: pick(ALERT_MSGS) };
+  const r = Math.random();
+  if (r < 0.05) {
+    const a = pick(ALERTS);
+    const meta = {};
+    for (const [k,v] of Object.entries(a.meta)) meta[k] = typeof v === 'function' ? v() : v;
+    return { event:'alert', level: pick(['warning','critical']), message: a.message, meta };
   }
-  const t = pick(['temp','humidity','wind']);
-  if (t === 'temp') return { event:'temp', value: rand(-1,35), unit:'°C' };
-  if (t === 'humidity') return { event:'humidity', value: rand(40,90), unit:'%' };
-  return { event:'wind', value: rand(0,35), unit:'m/s' };
+  const t = pick(['temp','humidity','wind','pressure','precipitation']);
+  if (t === 'temp') {
+    const v = rand(-5,38);
+    return { event:'temp', value: v, unit:'°C', sensor:{ wind_chill: v - rand(1,4), dew_point: v - rand(5,12) }};
+  }
+  if (t === 'humidity') return { event:'humidity', value: rand(30,95), unit:'%', trend: pick(['rising','falling','steady']) };
+  if (t === 'wind') {
+    const s = rand(0,30);
+    return { event:'wind', speed: s, gust: s + rand(0,12), direction: rand(0,359), unit:'m/s' };
+  }
+  if (t === 'pressure') return { event:'pressure', value: +(rand(9800,10500)/10).toFixed(1), unit:'hPa', trend: pick(['rising','falling','steady']) };
+  return { event:'precipitation', type: pick(['rain','sleet','snow','hail']), rate: +(rand(0,200)/10).toFixed(1), unit:'mm/h', accumulation: +(rand(0,500)/10).toFixed(1) };
 }
 
 function pillText(p) {
   if (p.event === 'alert') return `alert ⚠ ${p.message || p.level || ''}`;
+  if (p.event === 'wind') return `wind ${p.speed}m/s gust ${p.gust}`;
+  if (p.event === 'precipitation') return `${p.type} ${p.rate}mm/h`;
   if (p.value != null) return `${p.event} ${p.value}${p.unit || ''}`;
   return p.event || JSON.stringify(p);
 }
@@ -255,7 +278,7 @@ async function pollRec(ref) {
     if (!r.ok) { log(`✗ Poll #${ref} failed: ${r.status}`); return; }
     const j = await r.json();
     s.events = j.events || [];
-    if (j.finished) {
+    if (j.status !== 'Running') {
       s.finished = true;
       log(`✓ Recording #${ref} complete — ${s.events.length} events captured`);
       renderRecordings();

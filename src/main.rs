@@ -21,6 +21,7 @@ use std::sync::Arc;
 struct Args {
     port: u16,
     bind: String,
+    ttl: u64,
     #[cfg(feature = "sse")]
     sse_endpoints: Vec<String>,
     #[cfg(feature = "sse")]
@@ -40,6 +41,7 @@ impl Default for Args {
         Self {
             port: 9000,
             bind: "127.0.0.1".to_string(),
+            ttl: 3600,
             #[cfg(feature = "sse")]
             sse_endpoints: Vec::new(),
             #[cfg(feature = "sse")]
@@ -104,6 +106,14 @@ fn parse_args_from(args: &[String]) -> Result<Args, ParseArgsError> {
         }
     }
 
+    fn parse_u64(flag: &str, raw: &str) -> Result<u64, ParseArgsError> {
+        match raw.parse::<u64>() {
+            Ok(0) => fail_arg(flag, "must be positive"),
+            Ok(v) => Ok(v),
+            Err(_) => fail_arg(flag, &format!("invalid integer: {}", raw)),
+        }
+    }
+
     #[cfg(feature = "mqtt")]
     fn parse_usize(flag: &str, raw: &str) -> Result<usize, ParseArgsError> {
         match raw.parse::<usize>() {
@@ -153,6 +163,10 @@ fn parse_args_from(args: &[String]) -> Result<Args, ParseArgsError> {
                 let value = next_value(args, &mut i, "--mqtt-source-segment")?;
                 result.mqtt_source_segment = parse_usize("--mqtt-source-segment", &value)?;
             }
+            "--ttl" => {
+                let value = next_value(args, &mut i, "--ttl")?;
+                result.ttl = parse_u64("--ttl", &value)?;
+            }
             "--help" | "-h" => {
                 return Err(ParseArgsError::Help);
             }
@@ -186,6 +200,7 @@ fn print_usage() {
         eprintln!("      --mqtt-sub <TOPIC>  MQTT topic to subscribe to (can repeat)");
         eprintln!("      --mqtt-source-segment <N>  Topic segment for source (default: 1)");
     }
+    eprintln!("      --ttl <SECONDS>     Recording TTL in seconds (default: 3600)");
     eprintln!("  -h, --help              Show this help");
 }
 
@@ -197,7 +212,8 @@ fn print_usage() {
 async fn main() {
     let args = parse_args();
     let addr = format!("{}:{}", args.bind, args.port);
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::new().with_ttl_secs(args.ttl));
+    let _reaper = crate::core::spawn_reaper(Arc::clone(&state), 60);
 
     // Start SSE ingress tasks if configured
     #[cfg(feature = "sse")]
@@ -238,25 +254,26 @@ async fn main() {
                 args.mqtt_subscribe.clone()
             };
 
+            let url = format!("mqtt://{}:{}", host, args.mqtt_port);
+            eprintln!("  mqtt {} (topics: {:?})", url, subscribe);
+
             let config = MqttIngressConfig {
                 client_id: format!("jmestrap_{}", std::process::id()),
                 host: host.clone(),
                 port: args.mqtt_port,
-                subscribe: subscribe.clone(),
+                subscribe,
                 source_segment: args.mqtt_source_segment,
             };
 
             match MqttIngress::connect(config).await {
                 Ok(ingress) => {
-                    let url = format!("mqtt://{}:{}", host, args.mqtt_port);
-                    eprintln!("  mqtt {} (topics: {:?})", url, subscribe);
                     let _task = crate::core::spawn_ingress_processor(
                         Box::new(ingress),
                         Arc::clone(&state),
                     );
                 }
                 Err(e) => {
-                    eprintln!("[mqtt] Failed to connect to {}:{}: {}", host, args.mqtt_port, e);
+                    eprintln!("[mqtt] Failed to connect to {}: {}", url, e);
                 }
             }
         }
@@ -270,9 +287,10 @@ async fn main() {
             std::process::exit(1);
         });
 
-    eprintln!("JmesTrap listening on http://{addr}");
+    eprintln!("JmesTrap listening on http://{addr}  (ttl: {}s)", args.ttl);
     eprintln!();
     eprintln!("  GET    /ping");
+    eprintln!("  GET    /ui");
     eprintln!("  POST   /recordings");
     eprintln!("  GET    /recordings");
     eprintln!("  GET    /recordings/{{ref}}?timeout=N");
@@ -345,6 +363,36 @@ mod cli_tests {
         assert_eq!(
             err,
             ParseArgsError::Invalid("--port: invalid integer: abc".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_ttl_flag() {
+        let args = parse(&["jmestrap", "--ttl", "300"]).unwrap();
+        assert_eq!(args.ttl, 300);
+    }
+
+    #[test]
+    fn parse_ttl_default() {
+        let args = parse(&["jmestrap"]).unwrap();
+        assert_eq!(args.ttl, 3600);
+    }
+
+    #[test]
+    fn parse_ttl_invalid() {
+        let err = parse(&["jmestrap", "--ttl", "abc"]).unwrap_err();
+        assert_eq!(
+            err,
+            ParseArgsError::Invalid("--ttl: invalid integer: abc".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_ttl_zero_rejected() {
+        let err = parse(&["jmestrap", "--ttl", "0"]).unwrap_err();
+        assert_eq!(
+            err,
+            ParseArgsError::Invalid("--ttl: must be positive".to_string())
         );
     }
 }

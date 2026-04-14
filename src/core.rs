@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{RwLock, Notify};
 
@@ -119,7 +120,7 @@ pub struct RecordedEvent {
 /// Full recording state snapshot (for get_recording with events + metadata).
 pub struct RecordingSnapshot {
     pub info: RecordingInfo,
-    pub events: Vec<RecordedEvent>,
+    pub events: Vec<Arc<RecordedEvent>>,
     pub notifier: Arc<Notify>,
 }
 
@@ -134,11 +135,11 @@ pub struct Recording {
     pub description: String,
     /// Event-sources this recording subscribes to
     pub sources: Vec<String>,
-    pub events: Vec<RecordedEvent>,
+    pub events: Vec<Arc<RecordedEvent>>,
     pub status: RecordingStatus,
-    /// Optional predicate for continuous matching (what to record)
+    /// Optional filter predicate (what to record)
     matching: Option<Jmes>,
-    /// Optional completion condition (when to stop)
+    /// Optional completion pattern (when to stop)
     until: Option<JmesUntil>,
     /// Notifier for when recording finishes (for fetch_recording with timeout)
     finished_notify: Arc<Notify>,
@@ -148,6 +149,8 @@ pub struct Recording {
     pub last_event_at_ms: Option<u64>,
     pub finished_at_ms: Option<u64>,
     pub events_evaluated: u64,
+    /// Last time a client fetched this recording (atomic for read-lock updates)
+    last_accessed_at: AtomicU64,
 }
 
 impl Recording {
@@ -172,6 +175,7 @@ impl Recording {
             last_event_at_ms: None,
             finished_at_ms: None,
             events_evaluated: 0,
+            last_accessed_at: AtomicU64::new(now_ms()),
         }
     }
 
@@ -180,8 +184,8 @@ impl Recording {
         self.sources.is_empty() || self.sources.iter().any(|s| s == source)
     }
 
-    /// Evaluate an event against this recording's predicates.
-    /// Returns true if the recording has finished (until condition met).
+    /// Evaluate an event against this recording's filter and completion pattern.
+    /// Returns true if the recording has finished (completion pattern satisfied).
     pub fn evaluate_event(&mut self, source: &str, payload: &JsonValue) -> bool {
         if self.status != RecordingStatus::Running {
             return self.status == RecordingStatus::Completed;
@@ -189,7 +193,7 @@ impl Recording {
 
         self.events_evaluated += 1;
 
-        // Check until condition first
+        // Check completion pattern first
         let until_match = self.until.as_mut().and_then(|u| u.try_match(payload));
         if let Some(predicate_index) = until_match {
             self.push_event(source, payload, Some(predicate_index));
@@ -203,7 +207,7 @@ impl Recording {
             return false;
         }
 
-        // Check matching predicate (None = record nothing, only until events)
+        // Check filter predicate (None = record nothing, only completion pattern events)
         let should_record = match self.matching {
             Some(ref matching) => matching.is_match(payload),
             None => false,
@@ -222,12 +226,12 @@ impl Recording {
             self.first_event_at_ms = Some(ts);
         }
         self.last_event_at_ms = Some(ts);
-        self.events.push(RecordedEvent {
+        self.events.push(Arc::new(RecordedEvent {
             source: source.to_string(),
             payload: payload.clone(),
             until_predicate,
             recorded_at_ms: ts,
-        });
+        }));
     }
 
     /// Get a handle to wait for recording to finish (for fetch_recording with timeout)
@@ -292,15 +296,12 @@ impl Recording {
 /// Manages all recordings
 pub struct Recordings {
     recordings: HashMap<RecordingRef, Recording>,
-    #[allow(dead_code)] // Used by test-only start() method
-    counter: RecordingRef,
 }
 
 impl Recordings {
     pub fn new() -> Self {
         Self {
             recordings: HashMap::new(),
-            counter: 0,
         }
     }
 
@@ -309,28 +310,13 @@ impl Recordings {
         self.recordings.insert(recording.reference, recording);
     }
 
-    /// Allocate a ref and start a recording (used by tests and standalone Recordings)
-    #[allow(dead_code)] // Test-only lifecycle helper; runtime uses AppState::start()
-    pub fn start(
-        &mut self,
-        sources: Vec<String>,
-        matching: Option<Jmes>,
-        until: Option<JmesUntil>,
-    ) -> RecordingRef {
-        self.counter += 1;
-        let reference = self.counter;
-        self.recordings.insert(
-            reference,
-            Recording::new(reference, String::new(), sources, matching, until),
-        );
-        reference
-    }
-
-    pub fn stop(&mut self, reference: RecordingRef) -> Option<Vec<RecordedEvent>> {
+    pub fn stop(&mut self, reference: RecordingRef) -> Option<Vec<Arc<RecordedEvent>>> {
         if let Some(rec) = self.recordings.get_mut(&reference) {
-            rec.status = RecordingStatus::Stopped;
-            rec.finished_at_ms = Some(now_ms());
-            rec.finished_notify.notify_waiters();
+            if rec.status == RecordingStatus::Running {
+                rec.status = RecordingStatus::Stopped;
+                rec.finished_at_ms = Some(now_ms());
+                rec.finished_notify.notify_waiters();
+            }
             Some(rec.events.clone())
         } else {
             None
@@ -338,7 +324,12 @@ impl Recordings {
     }
 
     pub fn delete(&mut self, reference: RecordingRef) -> bool {
-        self.recordings.remove(&reference).is_some()
+        if let Some(rec) = self.recordings.remove(&reference) {
+            rec.finished_notify.notify_waiters();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get(&self, reference: RecordingRef) -> Option<&Recording> {
@@ -346,12 +337,16 @@ impl Recordings {
     }
 
     #[allow(dead_code)] // Test-only helper; runtime uses AppState::get_events()
-    pub fn get_events(&self, reference: RecordingRef) -> Option<Vec<RecordedEvent>> {
+    pub fn get_events(&self, reference: RecordingRef) -> Option<Vec<Arc<RecordedEvent>>> {
         self.recordings.get(&reference).map(|r| r.events.clone())
     }
 
     pub fn list(&self) -> Vec<RecordingInfo> {
         self.recordings.values().map(|r| r.info()).collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.recordings.is_empty()
     }
 
     /// Get all active recordings that match a source
@@ -400,6 +395,11 @@ pub struct AppState {
     /// write-locked only when a new source appears (rare).
     /// Inner Mutex: per-source, so events from different sources never contend.
     source_stats: StdRwLock<HashMap<String, std::sync::Mutex<SourceStatsInner>>>,
+
+    /// TTL for recordings in milliseconds. Finished recordings are deleted
+    /// after this duration; idle Running recordings are deleted if not accessed
+    /// within this window.
+    ttl_ms: u64,
 }
 
 impl AppState {
@@ -409,8 +409,15 @@ impl AppState {
             global: Arc::new(RwLock::new(Recordings::new())),
             counter: std::sync::atomic::AtomicU64::new(0),
             ref_index: RwLock::new(HashMap::new()),
-            source_stats: StdRwLock::new(HashMap::new()), // HashMap<String, Mutex<SourceStatsInner>>
+            source_stats: StdRwLock::new(HashMap::new()),
+            ttl_ms: 3_600_000,
         }
+    }
+
+    /// Override the default TTL (in seconds) for recording cleanup.
+    pub fn with_ttl_secs(mut self, secs: u64) -> Self {
+        self.ttl_ms = secs * 1000;
+        self
     }
 
     /// Allocate a globally unique recording reference
@@ -504,7 +511,7 @@ impl AppState {
     pub async fn stop_recording(
         &self,
         reference: RecordingRef,
-    ) -> Option<Vec<RecordedEvent>> {
+    ) -> Option<Vec<Arc<RecordedEvent>>> {
         let shard_locks = self.find_recording_shards(reference).await?;
         // Stop in first shard that has it (for shared recordings, stop once
         // and the Arc-shared state is visible to all shards)
@@ -526,6 +533,8 @@ impl AppState {
         for shard_lock in &shard_locks {
             let shard = shard_lock.read().await;
             if let Some(rec) = shard.get(reference) {
+                // Touch: reset the idle-reaper clock (atomic — no write lock needed)
+                rec.last_accessed_at.store(now_ms(), Ordering::Relaxed);
                 return Some(RecordingSnapshot {
                     info: rec.info(),
                     events: rec.events.clone(),
@@ -707,6 +716,114 @@ pub fn spawn_ingress_processor(
 }
 
 // =============================================================================
+// Recording Reaper
+// =============================================================================
+
+/// Spawn a background task that periodically deletes expired recordings.
+pub fn spawn_reaper(
+    state: Arc<AppState>,
+    interval_secs: u64,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(
+            std::time::Duration::from_secs(interval_secs),
+        );
+        loop {
+            ticker.tick().await;
+            reap_expired(&state, now_ms()).await;
+        }
+    })
+}
+
+/// Delete recordings that have outlived their TTL.
+///
+/// - Completed/Stopped: expired when `now - finished_at_ms >= ttl`
+/// - Running: expired when `now - last_accessed_at >= ttl`
+///
+/// Accepts `now` as a parameter so tests can control time.
+pub(crate) async fn reap_expired(state: &AppState, now: u64) {
+    let ttl = state.ttl_ms;
+    let mut expired: Vec<RecordingRef> = Vec::new();
+
+    // Scan global shard
+    {
+        let global = state.global.read().await;
+        collect_expired(&global, ttl, now, &mut expired);
+    }
+
+    // Scan per-source shards
+    {
+        let shards = state.shards.read().await;
+        for shard_lock in shards.values() {
+            let shard = shard_lock.read().await;
+            collect_expired(&shard, ttl, now, &mut expired);
+        }
+    }
+
+    // Delete expired recordings
+    for ref_id in &expired {
+        state.delete_recording(*ref_id).await;
+    }
+
+    // Prune empty per-source shards
+    {
+        let shards = state.shards.read().await;
+        let empty_keys: Vec<String> = {
+            let mut empties = Vec::new();
+            for (key, shard_lock) in shards.iter() {
+                let shard = shard_lock.read().await;
+                if shard.is_empty() {
+                    empties.push(key.clone());
+                }
+            }
+            empties
+        };
+        if !empty_keys.is_empty() {
+            drop(shards); // release read lock before taking write lock
+            let mut shards = state.shards.write().await;
+            for key in &empty_keys {
+                // Double-check: another task may have inserted into the shard
+                if let Some(shard_lock) = shards.get(key) {
+                    let shard = shard_lock.read().await;
+                    if shard.is_empty() {
+                        drop(shard);
+                        shards.remove(key);
+                    }
+                }
+            }
+        }
+    }
+
+    if !expired.is_empty() {
+        eprintln!("[reaper] Cleaned up {} expired recording(s)", expired.len());
+    }
+}
+
+fn collect_expired(
+    recordings: &Recordings,
+    ttl: u64,
+    now: u64,
+    out: &mut Vec<RecordingRef>,
+) {
+    for rec in recordings.recordings.values() {
+        let age = match rec.status {
+            RecordingStatus::Running => {
+                now.saturating_sub(rec.last_accessed_at.load(Ordering::Relaxed))
+            }
+            RecordingStatus::Completed | RecordingStatus::Stopped => {
+                match rec.finished_at_ms {
+                    Some(t) => now.saturating_sub(t),
+                    None => continue, // shouldn't happen, but be safe
+                }
+            }
+        };
+        if age >= ttl {
+            out.push(rec.reference);
+        }
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -740,7 +857,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recording_evaluate_event() {
-        let match_all = Some(Jmes::new("@").unwrap());
+        let match_all = Some(Jmes::new("`true`").unwrap());
         let mut rec = Recording::new(1, String::new(), vec![], match_all, None);
 
         let event = json!({"type": "test", "value": 42});
@@ -758,7 +875,7 @@ mod tests {
         let state = Arc::new(AppState::new());
 
         // Start a recording for dut1 — matching="@" to record all
-        let match_all = Some(Jmes::new("@").unwrap());
+        let match_all = Some(Jmes::new("`true`").unwrap());
         let ref1 = state
             .start_recording(
                 String::new(),
@@ -792,7 +909,7 @@ mod tests {
         let state = Arc::new(AppState::new());
 
         // Start two recordings for dut1 — matching="@" to record all
-        let match_all = || Some(Jmes::new("@").unwrap());
+        let match_all = || Some(Jmes::new("`true`").unwrap());
         let ref1 = state
             .start_recording(String::new(), vec!["dut1".to_string()], match_all(), None)
             .await;
@@ -880,7 +997,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_sets_finished_at_ms() {
         let state = Arc::new(AppState::new());
-        let matching = Jmes::new("@").unwrap();
+        let matching = Jmes::new("`true`").unwrap();
         let ref1 = state
             .start_recording(String::new(), vec!["s".to_string()], Some(matching), None)
             .await;
@@ -894,6 +1011,30 @@ mod tests {
         assert_eq!(snap.info.status, RecordingStatus::Stopped);
         assert!(snap.info.finished_at_ms.is_some(), "stop must set finished_at_ms");
         assert!(snap.info.finished_at_ms.unwrap() >= snap.info.last_event_at_ms.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_stop_completed_recording_preserves_status() {
+        let state = Arc::new(AppState::new());
+        let until = JmesUntil::order(&["event == 'done'"]).unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["s".to_string()], None, Some(until))
+            .await;
+
+        // Complete the recording via until-predicate
+        let event = Event { source: "s".to_string(), payload: json!({"event": "done"}) };
+        state.process_event(&event).await;
+
+        let snap = state.get_recording(ref1).await.unwrap();
+        assert_eq!(snap.info.status, RecordingStatus::Completed);
+        let original_finished_at = snap.info.finished_at_ms;
+
+        // Stop should not clobber Completed status or timestamp
+        state.stop_recording(ref1).await;
+
+        let snap = state.get_recording(ref1).await.unwrap();
+        assert_eq!(snap.info.status, RecordingStatus::Completed);
+        assert_eq!(snap.info.finished_at_ms, original_finished_at);
     }
 
     #[tokio::test]
@@ -965,15 +1106,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_recordings_start_and_list() {
-
+    async fn test_recordings_insert_and_list() {
         let mut recordings = Recordings::new();
 
-        let ref1 = recordings.start(vec![], None, None);
-        assert_eq!(ref1, 1);
-
-        let ref2 = recordings.start(vec![], None, None);
-        assert_eq!(ref2, 2);
+        recordings.insert(Recording::new(1, String::new(), vec![], None, None));
+        recordings.insert(Recording::new(2, String::new(), vec![], None, None));
 
         let list = recordings.list();
         assert_eq!(list.len(), 2);
@@ -985,12 +1122,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_recordings_delete() {
-
         let mut recordings = Recordings::new();
 
-        let ref1 = recordings.start(vec![], None, None);
-        assert!(recordings.delete(ref1));
-        assert!(recordings.get_events(ref1).is_none());
+        recordings.insert(Recording::new(1, String::new(), vec![], None, None));
+        assert!(recordings.delete(1));
+        assert!(recordings.get_events(1).is_none());
 
         // Deleting non-existent returns false
         assert!(!recordings.delete(999));
@@ -998,7 +1134,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_recordings_fanout_with_different_predicates() {
-
         // Three recordings with different matching predicates receive the same events.
         let mut recordings = Recordings::new();
 
@@ -1006,9 +1141,10 @@ mod tests {
         let pred2 = Jmes::new("body.signal < `-60`").unwrap();
         let pred3 = Jmes::new("body.mode == '5G NR'").unwrap();
 
-        let r1 = recordings.start(vec![], Some(pred1), None);
-        let r2 = recordings.start(vec![], Some(pred2), None);
-        let r3 = recordings.start(vec![], Some(pred3), None);
+        recordings.insert(Recording::new(1, String::new(), vec![], Some(pred1), None));
+        recordings.insert(Recording::new(2, String::new(), vec![], Some(pred2), None));
+        recordings.insert(Recording::new(3, String::new(), vec![], Some(pred3), None));
+        let (r1, r2, r3) = (1, 2, 3);
 
         let events = vec![
             json!({"event": "signal", "body": {"signal": -55, "mode": "5G NR"}}),
@@ -1169,7 +1305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recording_timestamps_and_counters() {
-        let matching = Jmes::new("@").unwrap();
+        let matching = Jmes::new("`true`").unwrap();
         let until = JmesUntil::order(&["event == 'done'"]).unwrap();
         let mut rec = Recording::new(
             1, String::new(), vec![], Some(matching), Some(until),
@@ -1222,7 +1358,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_info_includes_timestamps() {
-        let matching = Jmes::new("@").unwrap();
+        let matching = Jmes::new("`true`").unwrap();
         let mut rec = Recording::new(1, String::new(), vec![], Some(matching), None);
 
         let info_before = rec.info();
@@ -1237,5 +1373,116 @@ mod tests {
         assert!(info_after.last_event_at_ms.is_some());
         assert_eq!(info_after.events_evaluated, 1);
         assert_eq!(info_after.event_count, 1);
+    }
+
+    // =========================================================================
+    // Reaper tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_reap_deletes_finished_recording() {
+        let state = AppState::new().with_ttl_secs(60);
+        let matching = Jmes::new("`true`").unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["s".into()], Some(matching), None)
+            .await;
+
+        // Stop the recording
+        state.stop_recording(ref1).await;
+        let snap = state.get_recording(ref1).await.unwrap();
+        let finished_at = snap.info.finished_at_ms.unwrap();
+
+        // Reap at finished_at + 59s — should survive
+        reap_expired(&state, finished_at + 59_000).await;
+        assert!(state.get_recording(ref1).await.is_some());
+
+        // Reap at finished_at + 60s — should be deleted
+        reap_expired(&state, finished_at + 60_000).await;
+        assert!(state.get_recording(ref1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reap_skips_running_recording_with_recent_access() {
+        let state = AppState::new().with_ttl_secs(60);
+        let matching = Jmes::new("`true`").unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["s".into()], Some(matching), None)
+            .await;
+
+        // Access it (get_recording touches last_accessed_at)
+        let snap = state.get_recording(ref1).await.unwrap();
+        assert_eq!(snap.info.status, RecordingStatus::Running);
+
+        // Reap 30s after creation — well within TTL
+        reap_expired(&state, now_ms() + 30_000).await;
+        assert!(state.get_recording(ref1).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_reap_deletes_idle_running_recording() {
+        let state = AppState::new().with_ttl_secs(60);
+        let matching = Jmes::new("`true`").unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["s".into()], Some(matching), None)
+            .await;
+
+        let created = state.get_recording(ref1).await.unwrap().info.created_at_ms;
+
+        // Reap 60s after last access (creation) — should be deleted
+        reap_expired(&state, created + 60_000).await;
+        assert!(state.get_recording(ref1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reap_spares_accessed_running_recording() {
+        let state = AppState::new().with_ttl_secs(60);
+        let matching = Jmes::new("`true`").unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["s".into()], Some(matching), None)
+            .await;
+
+        let created = state.get_recording(ref1).await.unwrap().info.created_at_ms;
+
+        // Simulate access at created + 50s by touching directly
+        {
+            let shard_locks = state.find_recording_shards(ref1).await.unwrap();
+            let shard = shard_locks[0].read().await;
+            let rec = shard.get(ref1).unwrap();
+            rec.last_accessed_at.store(created + 50_000, Ordering::Relaxed);
+        }
+
+        // Reap at created + 60s — recording was accessed at +50s, so only 10s idle
+        reap_expired(&state, created + 60_000).await;
+        assert!(state.get_recording(ref1).await.is_some());
+
+        // Reap at created + 110s — 60s since last access, should be deleted
+        reap_expired(&state, created + 110_000).await;
+        assert!(state.get_recording(ref1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reap_prunes_empty_shards() {
+        let state = AppState::new().with_ttl_secs(10);
+        let matching = Jmes::new("`true`").unwrap();
+        let ref1 = state
+            .start_recording(String::new(), vec!["prunable".into()], Some(matching), None)
+            .await;
+
+        // Verify shard exists
+        {
+            let shards = state.shards.read().await;
+            assert!(shards.contains_key("prunable"));
+        }
+
+        // Stop and reap
+        state.stop_recording(ref1).await;
+        let snap = state.get_recording(ref1).await.unwrap();
+        reap_expired(&state, snap.info.finished_at_ms.unwrap() + 10_000).await;
+
+        // Shard should be pruned
+        {
+            let shards = state.shards.read().await;
+            assert!(!shards.contains_key("prunable"));
+        }
     }
 }

@@ -18,7 +18,7 @@
 //!     // ... events arrive from MQTT / SSE / test harness ...
 //!
 //!     let result = rec.fetch(15.0).await?;
-//!     assert!(result.finished);
+//!     assert!(result.completed());
 //!     println!("{result}");
 //!
 //!     rec.delete().await?;
@@ -45,7 +45,7 @@
 //!     // ... trigger the device under test ...
 //!
 //!     let result = rec.fetch(15.0).await.unwrap();
-//!     result.assert_finished("login sequence incomplete");
+//!     result.assert_completed("login sequence incomplete");
 //! }
 //! ```
 
@@ -92,13 +92,13 @@ impl From<reqwest::Error> for Error {
 }
 
 // =============================================================================
-// Until — completion condition
+// Until — completion pattern
 // =============================================================================
 
-/// Recording completion condition.
+/// Recording completion pattern.
 ///
-/// Determines when a recording finishes based on JMESPath predicates
-/// evaluated against incoming event payloads.
+/// Composes JMESPath predicates into an event pattern that determines when
+/// a recording finishes. Evaluated against incoming event payloads.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Until {
@@ -169,8 +169,7 @@ pub struct RecordingResult {
     #[serde(default)]
     pub description: String,
     pub sources: Vec<String>,
-    pub finished: bool,
-    pub active: bool,
+    pub status: String,
     pub event_count: usize,
     pub events: Vec<RecordedEvent>,
     #[serde(default)]
@@ -189,7 +188,7 @@ pub struct RecordingResult {
     pub events_evaluated: u64,
 }
 
-/// Progress of an `until` completion condition.
+/// Progress of an `until` completion pattern.
 #[derive(Debug, Deserialize)]
 pub struct UntilProgress {
     /// `"order"` or `"any_order"`.
@@ -218,8 +217,7 @@ pub struct RecordingInfo {
     pub description: String,
     pub sources: Vec<String>,
     pub event_count: usize,
-    pub active: bool,
-    pub finished: bool,
+    pub status: String,
     #[serde(default)]
     pub matching_expr: Option<String>,
     #[serde(default)]
@@ -234,6 +232,18 @@ pub struct RecordingInfo {
     pub finished_at_ms: Option<u64>,
     #[serde(default)]
     pub events_evaluated: u64,
+}
+
+impl RecordingInfo {
+    /// True when the completion pattern was satisfied (`status == "completed"`).
+    pub fn completed(&self) -> bool {
+        self.status == "completed"
+    }
+
+    /// True when the recording is still accepting events (`status == "running"`).
+    pub fn active(&self) -> bool {
+        self.status == "running"
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,16 +271,26 @@ struct SourcesResponse {
 // =============================================================================
 
 impl RecordingResult {
+    /// True when the completion pattern was satisfied (`status == "completed"`).
+    pub fn completed(&self) -> bool {
+        self.status == "completed"
+    }
+
+    /// True when the recording is still accepting events (`status == "running"`).
+    pub fn active(&self) -> bool {
+        self.status == "running"
+    }
+
     /// Panics with a predicate report if the recording did not finish.
     ///
     /// Intended for `#[tokio::test]` assertions:
     ///
     /// ```no_run
     /// # let result: jmestrap_client::RecordingResult = todo!();
-    /// result.assert_finished("login sequence incomplete");
+    /// result.assert_completed("login sequence incomplete");
     /// ```
-    pub fn assert_finished(&self, msg: &str) {
-        if !self.finished {
+    pub fn assert_completed(&self, msg: &str) {
+        if !self.completed() {
             panic!("{msg}\n{self}");
         }
     }
@@ -286,7 +306,7 @@ impl RecordingResult {
 
 impl fmt::Display for RecordingResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let state = if self.finished { "finished" } else { "active" };
+        let state = if self.completed() { "completed" } else { "active" };
         writeln!(
             f,
             "Recording {} — {state} — {} events",
@@ -322,7 +342,7 @@ impl Recording {
     /// Long-poll for recording results.
     ///
     /// Blocks up to `timeout` seconds waiting for the recording to finish.
-    /// Returns the current state whether finished or not.
+    /// Returns the current state whether completed or not.
     pub async fn fetch(&self, timeout: f64) -> Result<RecordingResult, Error> {
         let resp = self
             .client

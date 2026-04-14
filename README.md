@@ -1,12 +1,16 @@
 # JMESTrap
 
-Record events from live sources and define completion conditions using
-[JMESPath](https://jmespath.org/) predicates. When the predicates are
-satisfied the recording finishes and the matched events are returned.
+Record events from live sources using event patterns built from
+[JMESPath](https://jmespath.org/) predicates. When the completion pattern
+is satisfied the recording finishes and the matched events are returned.
 
 JMESTrap is transport-agnostic. Events arrive via MQTT, SSE, or direct
 REST injection. The core sees one merged stream per source and evaluates
 predicates against it.
+
+> **Terminology:** each JMESPath expression is a *predicate* (boolean filter
+> on one event). `order` and `any_order` compose predicates into *event
+> patterns* that match across a stream of events.
 
 ## Build
 
@@ -24,7 +28,8 @@ Requires Rust 1.85+ (edition 2024).
 Start the server:
 
 ```bash
-./target/release/jmestrap
+./target/release/jmestrap              # default TTL: 3600s
+./target/release/jmestrap --ttl 7200   # 2-hour TTL
 ```
 
 Create a recording that completes when it sees `event=='start'` followed
@@ -80,15 +85,17 @@ events from a given source merge into one ordered stream.
 
 **Recordings** watch one or more sources and collect events that pass an
 optional `matching` filter. A recording finishes when its `until`
-condition is met.
+completion pattern is satisfied.
 
-**Until conditions** come in two forms:
+**Completion patterns** come in two forms:
 
-- `order` — predicates must match in sequence. Each predicate is tried
-  against incoming events; when it matches, evaluation advances to the
-  next. The recording finishes when the last predicate matches.
-- `any_order` — all predicates must match, but in any order. Each
-  incoming event is tested against all unmatched predicates.
+- `order` — a *sequence pattern*: predicates must match in order across
+  successive events. Each predicate is tried against incoming events;
+  when it matches, evaluation advances to the next. The recording
+  finishes when the last predicate matches.
+- `any_order` — a *conjunction pattern*: all predicates must match, each
+  consumed once, in any order. Each incoming event is tested against all
+  unmatched predicates.
 
 Predicates are JMESPath expressions evaluated against the event payload.
 A predicate matches when the expression returns a truthy value.
@@ -102,13 +109,14 @@ events or because an active recording targets it.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/ping` | Health check |
+| `GET` | `/ui` | Embedded dashboard (HTML) |
 | `POST` | `/recordings` | Create recording |
 | `GET` | `/recordings` | List all recordings |
 | `GET` | `/recordings/{ref}?timeout=N` | Get recording (long-poll) |
 | `POST` | `/recordings/{ref}/stop` | Stop recording early |
 | `DELETE` | `/recordings/{ref}` | Delete recording |
 | `GET` | `/sources` | List observed sources and stats |
-| `POST` | `/events/{source}` | Inject event (test/debug) |
+| `POST` | `/events/{source}` | Inject event |
 
 ## Recording Payload
 
@@ -128,10 +136,29 @@ events or because an active recording targets it.
 - `sources` — which sources to watch. Empty array watches all sources.
 - `matching` — JMESPath filter. Only matching events are recorded.
   Without `matching`, only events that satisfy `until` predicates are
-  captured. Use `"@"` to record all events (equivalent to "match
-  everything").
-- `until` — optional completion condition (`order` or `any_order`).
+  captured. Use `` `true` `` to record all events (the JMESPath literal
+  `true` is unconditionally truthy).
+- `until` — optional completion pattern (`order` or `any_order`).
   Without `until`, the recording runs until explicitly stopped.
+
+### Common Pitfalls
+
+A few behaviors surprise first-time users. None are bugs — they follow
+from the semantics above — but they are worth calling out:
+
+- **`sources: []` means *match all sources*, not *match none*.** An
+  empty array is the wildcard. To watch nothing, don't create the
+  recording. Wildcard recordings take a slower path (global shard)
+  than single-source recordings.
+- **Omitting `matching` records *only* events that satisfy `until`.**
+  `{sources: ["dut1"], until: {...}}` looks like "record everything
+  until X" but actually records almost nothing. To record every event
+  up to the completion, set `` "matching": "`true`" ``.
+- **`until` consumes the event before `matching` sees it.** When an
+  event satisfies the current `until` predicate, it is tagged as an
+  until-match and skips the `matching` filter. An event cannot be
+  both a "completion" event and a captured event in the same
+  recording — it is one or the other.
 
 ### Recording Response
 
@@ -142,6 +169,20 @@ Fetched recordings include timing and statistics:
 - `events_evaluated` — total events tested against this recording's
   predicates (including non-matches). Compare with `event_count` to
   gauge selectivity.
+
+### Recording Lifecycle
+
+Recordings are automatically cleaned up after a configurable TTL (default
+3600 seconds, set with `--ttl`):
+
+- **Completed/Stopped** recordings are deleted once `--ttl` seconds have
+  elapsed since they finished.
+- **Running** recordings that have not been fetched within `--ttl` seconds
+  (idle) are also cleaned up.
+- Fetching a recording (`GET /recordings/{ref}`) resets the idle clock,
+  so actively polled recordings are never reaped.
+
+A background reaper runs every 60 seconds to enforce these limits.
 
 ## Event Ingress
 
@@ -210,8 +251,12 @@ Two self-contained HTML files work against a running JMESTrap instance:
   in Termux.
 - **dashboard.html** — Live observability dashboard showing sources
   and recordings with timing, predicate progress, and selectivity stats.
+  Includes a *Predicate Painter*: click any value in a captured event
+  to build a JMESPath predicate (AND/OR-composed) without typing.
 
-Open either directly in a browser while JMESTrap is running on localhost:9000.
+Open either directly in a browser while JMESTrap is running on
+`localhost:9000`, or visit `http://localhost:9000/ui` — the dashboard
+is also served by the running binary.
 
 ## Client Libraries
 
@@ -219,7 +264,7 @@ The REST API is simple enough to drive from any HTTP client directly.
 Two reference implementations are included as starting points:
 
 - **Rust** (`client/rust/`) — async client with builder pattern (reqwest)
-- **Python** (`client/python/`) — requests-based, with `assert_finished()` for pytest
+- **Python** (`client/python/`) — requests-based, with `assert_completed()` for pytest
 
 A std-only Rust example (no reqwest) is also available:
 `cargo run --example minimal_rust_client`
@@ -246,11 +291,15 @@ Optional stress/performance test:
 JMESTRAP_RUN_PERF_GUARD=1 cargo test perf_guard_single_source_bounded
 ```
 
+## Deployment
+
+For long-running lab-rig deployment (systemd unit, auto-restart, journald
+logs), see [`contrib/README.md`](contrib/README.md).
+
 ## Current Limitations
 
 - Recording references are in-memory counters that reset on server restart.
   Do not persist refs across restarts.
-- No recording TTL or auto-cleanup — stale recordings persist until deleted.
 - MQTT broker integration tests are opt-in to keep default workflows simple.
 - SSE ingress has no reconnect behavior after stream termination.
 

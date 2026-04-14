@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Match-all predicate for stress tests that need to record every event.
 fn match_all() -> Jmes {
-    Jmes::new("@").unwrap()
+    Jmes::new("`true`").unwrap()
 }
 use std::sync::Arc;
 use std::time::{Duration, Instant};
